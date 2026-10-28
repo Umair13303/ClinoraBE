@@ -1,0 +1,6 @@
+@ClinoraBE_HostAddress = http://localhost:5089
+
+GET {{ClinoraBE_HostAddress}}/weatherforecast/
+Accept: application/json
+
+###
