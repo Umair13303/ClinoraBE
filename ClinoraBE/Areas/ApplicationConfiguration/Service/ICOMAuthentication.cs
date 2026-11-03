@@ -7,7 +7,7 @@ namespace ClinoraBE.Areas.ApplicationConfiguration.Service
 {
     public interface ICOMAuthentication
     {
-        Task<List<VMMenu>> GetMenuForUserRoleAsync();
+        Task<List<VMMenu>> getVRight_By_RoleId();
     }
 
     public class ICOMAuthenticationService : ICOMAuthentication
@@ -21,7 +21,7 @@ namespace ClinoraBE.Areas.ApplicationConfiguration.Service
             _httpContextAccessor = httpContextAccessor;
         }
 
-        public async Task<List<VMMenu>> GetMenuForUserRoleAsync()
+        public async Task<List<VMMenu>> getVRight_By_RoleId()
         {
             var user = _httpContextAccessor.HttpContext?.User;
 

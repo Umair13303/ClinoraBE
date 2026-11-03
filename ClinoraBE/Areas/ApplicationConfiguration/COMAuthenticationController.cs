@@ -29,7 +29,7 @@ namespace ClinoraBE.Areas.ApplicationConfiguration.Controllers
             _authService = authService;
         }
 
-        [HttpPost("UserLogin")]
+        [HttpPost("UserLogin_Validation")]
         public async Task<IActionResult> post_UserLogin([FromBody] User postedData)
         {
             if (postedData == null || string.IsNullOrWhiteSpace(postedData.Email) || string.IsNullOrWhiteSpace(postedData.Password))
@@ -85,10 +85,10 @@ namespace ClinoraBE.Areas.ApplicationConfiguration.Controllers
             });
         }
 
-        [HttpGet("UserMenu")]
+        [HttpGet("UserMenu_Populate")]
         public async Task<ActionResult<List<VMMenu>>> get_UserMenu()
         {
-            var menus = await _authService.GetMenuForUserRoleAsync();
+            var menus = await _authService.getVRight_By_RoleId();
             return Ok(menus);
         }
     }
