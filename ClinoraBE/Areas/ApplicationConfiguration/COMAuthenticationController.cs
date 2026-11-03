@@ -1,13 +1,15 @@
-﻿using Microsoft.AspNetCore.Http;
+﻿using ClinoraBE.Areas.ApplicationConfiguration.Service;
+using ClinoraBE.Model.DAL;
+using ClinoraBE.Model.Enum;
+using ClinoraBE.Model.Security;
+using ClinoraBE.Model.ViewModel;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
 using System.Text;
-using ClinoraBE.Model.DAL;
-using ClinoraBE.Model.Enum;
-using ClinoraBE.Model.Security;
 
 namespace ClinoraBE.Areas.ApplicationConfiguration.Controllers
 {
@@ -18,15 +20,17 @@ namespace ClinoraBE.Areas.ApplicationConfiguration.Controllers
     {
         private readonly ClinoraContext _context;
         private readonly IConfiguration _configuration;
+        private readonly ICOMAuthentication _authService;
 
-        public COMAuthenticationController(ClinoraContext context, IConfiguration configuration)
+        public COMAuthenticationController(ICOMAuthentication authService,ClinoraContext context, IConfiguration configuration)
         {
             _context = context;
             _configuration = configuration;
+            _authService = authService;
         }
 
         [HttpPost("UserLogin")]
-        public async Task<IActionResult> UserLogin([FromBody] User postedData)
+        public async Task<IActionResult> post_UserLogin([FromBody] User postedData)
         {
             if (postedData == null || string.IsNullOrWhiteSpace(postedData.Email) || string.IsNullOrWhiteSpace(postedData.Password))
             {
@@ -79,6 +83,13 @@ namespace ClinoraBE.Areas.ApplicationConfiguration.Controllers
                 UserTypeId = user.UserTypeId,
                 RoleId = user.RoleId
             });
+        }
+
+        [HttpGet("UserMenu")]
+        public async Task<ActionResult<List<VMMenu>>> get_UserMenu(string token)
+        {
+            var menus = await _authService.GetMenuForUserRoleAsync();
+            return Ok(menus);
         }
     }
 }

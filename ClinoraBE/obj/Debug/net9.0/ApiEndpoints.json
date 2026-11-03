@@ -1,7 +1,7 @@
 [
   {
     "ContainingType": "ClinoraBE.Areas.ApplicationConfiguration.Controllers.COMAuthenticationController",
-    "Method": "UserLogin",
+    "Method": "post_UserLogin",
     "RelativePath": "api/ApplicationConfiguration/COMAuthentication/UserLogin",
     "HttpMethod": "POST",
     "IsController": true,
@@ -14,6 +14,32 @@
       }
     ],
     "ReturnTypes": []
+  },
+  {
+    "ContainingType": "ClinoraBE.Areas.ApplicationConfiguration.Controllers.COMAuthenticationController",
+    "Method": "get_UserMenu",
+    "RelativePath": "api/ApplicationConfiguration/COMAuthentication/UserMenu",
+    "HttpMethod": "GET",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "token",
+        "Type": "System.String",
+        "IsRequired": false
+      }
+    ],
+    "ReturnTypes": [
+      {
+        "Type": "System.Collections.Generic.List\u00601[[ClinoraBE.Model.ViewModel.VMMenu, ClinoraBE, Version=1.0.0.0, Culture=neutral, PublicKeyToken=null]]",
+        "MediaTypes": [
+          "text/plain",
+          "application/json",
+          "text/json"
+        ],
+        "StatusCode": 200
+      }
+    ]
   },
   {
     "ContainingType": "ClinoraBE.Controllers.WeatherForecastController",

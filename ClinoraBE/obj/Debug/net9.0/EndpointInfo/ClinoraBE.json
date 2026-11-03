@@ -36,6 +36,53 @@
         }
       }
     },
+    "/api/ApplicationConfiguration/COMAuthentication/UserMenu": {
+      "get": {
+        "tags": [
+          "COMAuthentication"
+        ],
+        "parameters": [
+          {
+            "name": "token",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/VMMenu"
+                  }
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/VMMenu"
+                  }
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/VMMenu"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/WeatherForecast": {
       "get": {
         "tags": [
@@ -147,6 +194,62 @@
           "roleId": {
             "type": "integer",
             "format": "int32"
+          }
+        },
+        "additionalProperties": false
+      },
+      "VMMenu": {
+        "type": "object",
+        "properties": {
+          "menu": {
+            "type": "string",
+            "nullable": true
+          },
+          "subMenu": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/VMSubMenu"
+            },
+            "nullable": true
+          }
+        },
+        "additionalProperties": false
+      },
+      "VMRight": {
+        "type": "object",
+        "properties": {
+          "displayName": {
+            "type": "string",
+            "nullable": true
+          },
+          "url": {
+            "type": "string",
+            "nullable": true
+          },
+          "operationType": {
+            "type": "string",
+            "nullable": true
+          },
+          "priority": {
+            "type": "integer",
+            "format": "int32"
+          }
+        },
+        "additionalProperties": false
+      },
+      "VMSubMenu": {
+        "type": "object",
+        "properties": {
+          "subMenu": {
+            "type": "string",
+            "nullable": true
+          },
+          "rights": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/VMRight"
+            },
+            "nullable": true
           }
         },
         "additionalProperties": false

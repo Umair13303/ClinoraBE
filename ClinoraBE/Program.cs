@@ -1,25 +1,29 @@
+using ClinoraBE.Areas.ApplicationConfiguration.Service;
 using ClinoraBE.Model.DAL;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
-using Microsoft.OpenApi;
-using Microsoft.OpenApi.Models;        // Swashbuckle 6.x / Microsoft.OpenApi 1.x
+using Microsoft.OpenApi.Models;
 using System.Text;
 
 var builder = WebApplication.CreateBuilder(args);
 
-// 1. Database
+// 1. Database & Services Configuration
 builder.Services.AddDbContext<ClinoraContext>(options =>
     options.UseSqlServer(builder.Configuration.GetConnectionString("ClinoraBEConnection")));
 
-// 2. Controllers
+// REQUIRED: Needed for extracting JWT claims inside IComAuthenticationService
+builder.Services.AddHttpContextAccessor();
+
+builder.Services.AddScoped<ICOMAuthentication  , ICOMAuthenticationService>();
 builder.Services.AddControllers();
 
-// 3. JWT authentication
+// 2. JWT Configuration
 var jwtSettings = builder.Configuration.GetSection("JwtSettings");
 var secretKey = jwtSettings["SecretKey"]
     ?? throw new InvalidOperationException("JwtSettings:SecretKey is not configured.");
-var keyBytes = Encoding.UTF8.GetBytes(secretKey); // must match the encoding used to issue tokens
+var keyBytes = Encoding.UTF8.GetBytes(secretKey);
+
 if (keyBytes.Length < 32)
     throw new InvalidOperationException("JwtSettings:SecretKey must be at least 32 bytes for HS256.");
 
@@ -44,7 +48,7 @@ builder.Services.AddAuthentication(options =>
 
 builder.Services.AddAuthorization();
 
-// 4. Swagger with JWT "Authorize" button
+// 3. Swagger with JWT "Authorize" button
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen(c =>
 {
@@ -78,14 +82,14 @@ builder.Services.AddSwaggerGen(c =>
 
 var app = builder.Build();
 
-// 5. Pipeline
+// 4. HTTP Request Pipeline
 if (app.Environment.IsDevelopment())
 {
     app.UseSwagger();
     app.UseSwaggerUI(c =>
     {
         c.SwaggerEndpoint("/swagger/v1/swagger.json", "ClinoraBE v1");
-        c.RoutePrefix = string.Empty; // Swagger UI at the root URL
+        c.RoutePrefix = string.Empty; // Swagger UI directly at the root URL
     });
 }
 
