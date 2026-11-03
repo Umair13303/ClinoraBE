@@ -86,7 +86,7 @@ namespace ClinoraBE.Areas.ApplicationConfiguration.Controllers
         }
 
         [HttpGet("UserMenu")]
-        public async Task<ActionResult<List<VMMenu>>> get_UserMenu(string token)
+        public async Task<ActionResult<List<VMMenu>>> get_UserMenu()
         {
             var menus = await _authService.GetMenuForUserRoleAsync();
             return Ok(menus);
