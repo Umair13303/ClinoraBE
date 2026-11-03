@@ -7,6 +7,7 @@ using System.Security.Claims;
 using System.Text;
 using ClinoraBE.Model.DAL;
 using ClinoraBE.Model.Enum;
+using ClinoraBE.Model.Security;
 
 namespace ClinoraBE.Areas.ApplicationConfiguration.Controllers
 {
@@ -67,7 +68,7 @@ namespace ClinoraBE.Areas.ApplicationConfiguration.Controllers
             var token = tokenHandler.CreateToken(tokenDescriptor);
             var tokenString = tokenHandler.WriteToken(token);
 
-            return Ok(new LoginResponseDto
+            return Ok(new AuthenticationPayLoad
             {
                 Token = tokenString,
                 UserId = user.Id,
@@ -79,23 +80,5 @@ namespace ClinoraBE.Areas.ApplicationConfiguration.Controllers
                 RoleId = user.RoleId
             });
         }
-    }
-
-    public class Login
-    {
-        public string Email { get; set; } = string.Empty;
-        public string Password { get; set; } = string.Empty;
-    }
-
-    public class LoginResponseDto
-    {
-        public string Token { get; set; } = string.Empty;
-        public int UserId { get; set; }
-        public string? Email { get; set; }
-        public string? Name { get; set; }
-        public int? BranchId { get; set; }
-        public int? CompanyId { get; set; }
-        public int UserTypeId { get; set; }
-        public int RoleId { get; set; }
     }
 }
