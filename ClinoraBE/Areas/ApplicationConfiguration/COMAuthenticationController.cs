@@ -75,7 +75,8 @@ namespace ClinoraBE.Areas.ApplicationConfiguration.Controllers
                 Name = user.Description,
                 BranchId = user.BranchId,
                 CompanyId = user.CompanyId,
-                UserTypeId = user.UserTypeId
+                UserTypeId = user.UserTypeId,
+                RoleId = user.RoleId
             });
         }
     }
@@ -95,5 +96,6 @@ namespace ClinoraBE.Areas.ApplicationConfiguration.Controllers
         public int? BranchId { get; set; }
         public int? CompanyId { get; set; }
         public int UserTypeId { get; set; }
+        public int RoleId { get; set; }
     }
 }
