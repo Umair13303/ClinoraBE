@@ -1,4 +1,5 @@
-﻿using Microsoft.EntityFrameworkCore;
+﻿using ClinoraBE.Model.Enum;
+using Microsoft.EntityFrameworkCore;
 using System;
 using System.Collections.Generic;
 
@@ -81,7 +82,7 @@ namespace ClinoraBE.Model.DAL
         public bool? Status { get; set; }
         public int? BranchId { get; set; }
         public int? CompanyId { get; set; }
-        public int UserTypeId { get; set; } = 1; // Default to 1
+        public int UserTypeId { get; set; } = (int)UserType.WebUser; 
         public string? Description { get; set; }
         public string? Password { get; set; }
         public string? Contact { get; set; }

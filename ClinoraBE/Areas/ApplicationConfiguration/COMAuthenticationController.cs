@@ -6,6 +6,7 @@ using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
 using System.Text;
 using ClinoraBE.Model.DAL;
+using ClinoraBE.Model.Enum;
 
 namespace ClinoraBE.Areas.ApplicationConfiguration.Controllers
 {
@@ -24,7 +25,7 @@ namespace ClinoraBE.Areas.ApplicationConfiguration.Controllers
         }
 
         [HttpPost("login")]
-        public async Task<IActionResult> Login([FromBody] LoginRequestDto postedData)
+        public async Task<IActionResult> Login([FromBody] User postedData)
         {
             if (postedData == null || string.IsNullOrWhiteSpace(postedData.Email) || string.IsNullOrWhiteSpace(postedData.Password))
             {
@@ -32,7 +33,7 @@ namespace ClinoraBE.Areas.ApplicationConfiguration.Controllers
             }
 
             var user = await _context.User
-                .FirstOrDefaultAsync(u => u.Email == postedData.Email && (u.Status == true || u.Status == null));
+                .FirstOrDefaultAsync(u => u.Email == postedData.Email && (u.Status == true || u.Status == null) && u.UserTypeId == (int)UserType.WebUser);
 
             if (user == null || user.Password != postedData.Password)
             {
@@ -78,8 +79,7 @@ namespace ClinoraBE.Areas.ApplicationConfiguration.Controllers
         }
     }
 
-    // DTOs for Login
-    public class LoginRequestDto
+    public class Login
     {
         public string Email { get; set; } = string.Empty;
         public string Password { get; set; } = string.Empty;
