@@ -88,6 +88,7 @@ namespace ClinoraBE.Model.DAL
         public string? Contact { get; set; }
         public string? Email { get; set; }
         public int? EmployeeId { get; set; }
+        public int RoleId { get; set; }
     }
 
     public partial class VRight

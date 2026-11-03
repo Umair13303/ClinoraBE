@@ -14,7 +14,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyCompanyAttribute("ClinoraBE")]
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Debug")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+7fa4b1f1575fbadae3d98cf0e7dfacbabe857ad6")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+2d323b8a123347762fe13eec20c9bb812313d946")]
 [assembly: System.Reflection.AssemblyProductAttribute("ClinoraBE")]
 [assembly: System.Reflection.AssemblyTitleAttribute("ClinoraBE")]
 [assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]

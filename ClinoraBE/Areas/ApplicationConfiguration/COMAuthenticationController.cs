@@ -24,8 +24,8 @@ namespace ClinoraBE.Areas.ApplicationConfiguration.Controllers
             _configuration = configuration;
         }
 
-        [HttpPost("login")]
-        public async Task<IActionResult> Login([FromBody] User postedData)
+        [HttpPost("UserLogin")]
+        public async Task<IActionResult> UserLogin([FromBody] User postedData)
         {
             if (postedData == null || string.IsNullOrWhiteSpace(postedData.Email) || string.IsNullOrWhiteSpace(postedData.Password))
             {
@@ -55,7 +55,8 @@ namespace ClinoraBE.Areas.ApplicationConfiguration.Controllers
                     new Claim(ClaimTypes.Email, user.Email ?? ""),
                     new Claim("BranchId", user.BranchId?.ToString() ?? ""),
                     new Claim("CompanyId", user.CompanyId?.ToString() ?? ""),
-                    new Claim("UserTypeId", user.UserTypeId.ToString())
+                    new Claim("UserTypeId", user.UserTypeId.ToString()),
+                    new Claim("RoleId", user.RoleId.ToString())
                 }),
                 Expires = DateTime.UtcNow.AddMinutes(expiryMinutes),
                 Issuer = jwtSettings["Issuer"],
