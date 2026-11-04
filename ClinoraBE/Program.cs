@@ -1,4 +1,5 @@
 using ClinoraBE.Areas.ApplicationConfiguration.Service;
+using ClinoraBE.Data;
 using ClinoraBE.Model.DAL;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
@@ -8,24 +9,37 @@ using System.Text;
 
 var builder = WebApplication.CreateBuilder(args);
 
-// 1. Database & Services Configuration
 builder.Services.AddDbContext<ClinoraContext>(options =>
     options.UseSqlServer(builder.Configuration.GetConnectionString("ClinoraBEConnection")));
 
-// REQUIRED: Needed for extracting JWT claims inside IComAuthenticationService
 builder.Services.AddHttpContextAccessor();
-
-builder.Services.AddScoped<ICOMAuthentication  , ICOMAuthenticationService>();
+builder.Services.AddScoped<ICOMAuthentication, ICOMAuthenticationService>();
 builder.Services.AddControllers();
 
-// 2. JWT Configuration
+const string FrontendCorsPolicy = "Frontend";
+var allowedOrigins = builder.Configuration.GetSection("Cors:AllowedOrigins").Get<string[]>();
+if (allowedOrigins is null || allowedOrigins.Length == 0)
+{
+    allowedOrigins = ["http://localhost:4200", "http://localhost:4201"];
+}
+
+builder.Services.AddCors(options =>
+{
+    options.AddPolicy(FrontendCorsPolicy, policy =>
+        policy.WithOrigins(allowedOrigins)
+            .AllowAnyHeader()
+            .AllowAnyMethod());
+});
+
 var jwtSettings = builder.Configuration.GetSection("JwtSettings");
 var secretKey = jwtSettings["SecretKey"]
     ?? throw new InvalidOperationException("JwtSettings:SecretKey is not configured.");
 var keyBytes = Encoding.UTF8.GetBytes(secretKey);
 
 if (keyBytes.Length < 32)
+{
     throw new InvalidOperationException("JwtSettings:SecretKey must be at least 32 bytes for HS256.");
+}
 
 builder.Services.AddAuthentication(options =>
 {
@@ -47,13 +61,10 @@ builder.Services.AddAuthentication(options =>
 });
 
 builder.Services.AddAuthorization();
-
-// 3. Swagger with JWT "Authorize" button
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen(c =>
 {
     c.SwaggerDoc("v1", new OpenApiInfo { Title = "ClinoraBE API", Version = "v1" });
-
     c.AddSecurityDefinition("Bearer", new OpenApiSecurityScheme
     {
         Type = SecuritySchemeType.Http,
@@ -63,7 +74,6 @@ builder.Services.AddSwaggerGen(c =>
         Name = "Authorization",
         Description = "Paste only the JWT. Swagger adds the 'Bearer ' prefix."
     });
-
     c.AddSecurityRequirement(new OpenApiSecurityRequirement
     {
         {
@@ -82,20 +92,26 @@ builder.Services.AddSwaggerGen(c =>
 
 var app = builder.Build();
 
-// 4. HTTP Request Pipeline
+using (var scope = app.Services.CreateScope())
+{
+    var db = scope.ServiceProvider.GetRequiredService<ClinoraContext>();
+    await FrontDeskSeeder.EnsureSeedAsync(db);
+}
+
 if (app.Environment.IsDevelopment())
 {
     app.UseSwagger();
     app.UseSwaggerUI(c =>
     {
         c.SwaggerEndpoint("/swagger/v1/swagger.json", "ClinoraBE v1");
-        c.RoutePrefix = string.Empty; // Swagger UI directly at the root URL
+        c.RoutePrefix = string.Empty;
     });
 }
 
+app.UseCors(FrontendCorsPolicy);
 app.UseHttpsRedirection();
+app.UseStaticFiles();
 app.UseAuthentication();
 app.UseAuthorization();
 app.MapControllers();
-
 app.Run();
