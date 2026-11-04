@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Security.Claims;
+using ClinoraBE.Infrastructure;
 using ClinoraBE.Model.DAL;
 using ClinoraBE.Model.ViewModel;
 using Microsoft.AspNetCore.Authorization;
@@ -28,23 +29,35 @@ namespace ClinoraBE.Controllers
             var start = DateTime.Today;
             var end = start.AddDays(1);
 
-            var visits = await (
+            var branchId = BranchContext.ResolveBranchId(Request, User);
+            var query =
                 from v in _db.Visit.AsNoTracking()
                 join p in _db.Patient.AsNoTracking() on v.PatientId equals p.Id
                 where v.CreatedAt >= start && v.CreatedAt < end
-                orderby v.CreatedAt descending
-                select new VisitSummaryDto
+                select new { v, p };
+
+            if (branchId is int bid)
+            {
+                query = query.Where(x => x.v.BranchId == bid || x.v.BranchId == null);
+            }
+
+            var visits = await query
+                .OrderByDescending(x => x.v.CreatedAt)
+                .Take(50)
+                .Select(x => new VisitSummaryDto
                 {
-                    Id = v.Id,
-                    VisitNumber = v.VisitNumber,
-                    PatientId = p.Id,
-                    PatientName = p.FullName,
-                    ReferredBy = string.IsNullOrWhiteSpace(v.ReferredBy) ? "—" : v.ReferredBy,
-                    PanelName = p.IsPanel && !string.IsNullOrWhiteSpace(p.PanelName) ? p.PanelName : "—",
-                    Net = v.Net,
-                    CreatedAt = v.CreatedAt
-                }
-            ).Take(50).ToListAsync();
+                    Id = x.v.Id,
+                    VisitNumber = x.v.VisitNumber,
+                    TokenNo = x.v.TokenNo,
+                    VisitStatus = x.v.VisitStatus,
+                    PatientId = x.p.Id,
+                    PatientName = x.p.FullName,
+                    ReferredBy = string.IsNullOrWhiteSpace(x.v.ReferredBy) ? "—" : x.v.ReferredBy,
+                    PanelName = x.p.IsPanel && !string.IsNullOrWhiteSpace(x.p.PanelName) ? x.p.PanelName : "—",
+                    Net = x.v.Net,
+                    CreatedAt = x.v.CreatedAt
+                })
+                .ToListAsync();
 
             return Ok(visits);
         }
@@ -195,11 +208,16 @@ namespace ClinoraBE.Controllers
                 }
             }
 
+            var branchId = BranchContext.ResolveBranchId(Request, User) ?? ReadIntClaim("BranchId") ?? patient.BranchId;
+            var today = DateTime.Today;
+            var tokenBase = await _db.Visit.CountAsync(v => v.CreatedAt >= today && (branchId == null || v.BranchId == branchId));
             var nextNumber = await _db.Visit.CountAsync() + 1;
             var visit = new Visit
             {
                 VisitNumber = $"V-{nextNumber:0000}",
                 PatientId = patient.Id,
+                TokenNo = tokenBase + 1,
+                VisitStatus = VisitStatuses.Active,
                 PercentOff = percent,
                 VisitOff = fixedOff,
                 Fees = fees,
@@ -211,11 +229,16 @@ namespace ClinoraBE.Controllers
                 ReferredBy = request.IsReferred ? request.ReferredBy?.Trim() : null,
                 SlipNo = request.IsReferred ? request.SlipNo?.Trim() : null,
                 Notes = request.IsReferred ? request.Notes?.Trim() : null,
-                BranchId = ReadIntClaim("BranchId") ?? patient.BranchId,
+                BranchId = branchId,
                 CompanyId = ReadIntClaim("CompanyId") ?? patient.CompanyId,
                 CreatedBy = ReadIntClaim(ClaimTypes.NameIdentifier),
                 CreatedAt = DateTime.Now
             };
+
+            if (patient.BranchId == null && branchId != null)
+            {
+                patient.BranchId = branchId;
+            }
 
             _db.Visit.Add(visit);
             await _db.SaveChangesAsync();
@@ -254,11 +277,51 @@ namespace ClinoraBE.Controllers
             {
                 Id = visit.Id,
                 VisitNumber = visit.VisitNumber,
+                TokenNo = visit.TokenNo,
                 PatientName = patient.FullName,
                 Net = visit.Net,
                 AmountReceived = visit.AmountReceived,
                 CreatedAt = visit.CreatedAt
             });
+        }
+
+        [HttpPost("{id:int}/cancel")]
+        public async Task<ActionResult> Cancel(int id)
+        {
+            var visit = await _db.Visit.FirstOrDefaultAsync(v => v.Id == id);
+            if (visit == null)
+            {
+                return NotFound(new { message = "Visit not found." });
+            }
+
+            var branchId = BranchContext.ResolveBranchId(Request, User);
+            if (!BranchContext.Matches(visit.BranchId, branchId))
+            {
+                return NotFound(new { message = "Visit not found for this branch." });
+            }
+
+            if (visit.VisitStatus == VisitStatuses.Cancelled)
+            {
+                return BadRequest(new { message = "Visit is already cancelled." });
+            }
+
+            var lines = await _db.VisitService.Where(vs => vs.VisitId == id).ToListAsync();
+            if (lines.Any(l => l.Status is VisitServiceStatuses.Finalized or VisitServiceStatuses.ResultEntered or VisitServiceStatuses.InLab or VisitServiceStatuses.SentOut or VisitServiceStatuses.Imaged))
+            {
+                return BadRequest(new { message = "Cannot cancel after lab work has started. Reject samples instead." });
+            }
+
+            visit.VisitStatus = VisitStatuses.Cancelled;
+            foreach (var line in lines.Where(l => l.Status is VisitServiceStatuses.AwaitingCollection or VisitServiceStatuses.AwaitingImaging or VisitServiceStatuses.Completed))
+            {
+                if (line.Status != VisitServiceStatuses.Completed)
+                {
+                    line.Status = VisitServiceStatuses.Cancelled;
+                }
+            }
+
+            await _db.SaveChangesAsync();
+            return Ok(new { message = "Visit cancelled.", visitNumber = visit.VisitNumber });
         }
 
         [HttpGet("{id:int}/slips")]
@@ -305,6 +368,7 @@ namespace ClinoraBE.Controllers
             {
                 VisitId = visit.Id,
                 VisitNumber = visit.VisitNumber,
+                TokenNo = visit.TokenNo,
                 CreatedAt = visit.CreatedAt,
                 PatientName = patient.FullName,
                 Phone = patient.Phone,

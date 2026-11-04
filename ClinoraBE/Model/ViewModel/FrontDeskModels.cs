@@ -9,6 +9,7 @@ namespace ClinoraBE.Model.ViewModel
         public int NormalMinutes { get; set; }
         public int UrgentMinutes { get; set; }
         public string Pathway { get; set; } = "Laboratory";
+        public string ReportProfile { get; set; } = "Standard";
         public int? SampleTypeId { get; set; }
         public int? ContainerId { get; set; }
         public int? BottleColorId { get; set; }
@@ -44,6 +45,8 @@ namespace ClinoraBE.Model.ViewModel
     {
         public int Id { get; set; }
         public string VisitNumber { get; set; } = string.Empty;
+        public int? TokenNo { get; set; }
+        public string VisitStatus { get; set; } = "Active";
         public int PatientId { get; set; }
         public string PatientName { get; set; } = string.Empty;
         public string? ReferredBy { get; set; }
@@ -89,6 +92,7 @@ namespace ClinoraBE.Model.ViewModel
     {
         public int Id { get; set; }
         public string VisitNumber { get; set; } = string.Empty;
+        public int? TokenNo { get; set; }
         public string PatientName { get; set; } = string.Empty;
         public decimal Net { get; set; }
         public decimal AmountReceived { get; set; }

@@ -160,6 +160,7 @@ namespace ClinoraBE.Data
 
             await db.SaveChangesAsync();
             await LabWorkflowSeeder.EnsureSeedAsync(db);
+            await Phase1OpsSeeder.EnsureSeedAsync(db);
         }
     }
 }

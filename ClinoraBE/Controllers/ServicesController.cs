@@ -40,6 +40,7 @@ namespace ClinoraBE.Controllers
                     NormalMinutes = s.NormalMinutes,
                     UrgentMinutes = s.UrgentMinutes,
                     Pathway = s.Pathway,
+                    ReportProfile = string.IsNullOrWhiteSpace(s.ReportProfile) ? "Standard" : s.ReportProfile,
                     SampleTypeId = s.SampleTypeId,
                     ContainerId = s.ContainerId,
                     BottleColorId = s.BottleColorId,

@@ -1,9 +1,10 @@
+using System.Security.Claims;
+using ClinoraBE.Infrastructure;
 using ClinoraBE.Model.DAL;
 using ClinoraBE.Model.ViewModel;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
-using System.Security.Claims;
 
 namespace ClinoraBE.Controllers
 {
@@ -22,15 +23,32 @@ namespace ClinoraBE.Controllers
         [HttpGet("shipments")]
         public async Task<ActionResult<List<ShipmentDto>>> List()
         {
-            var shipments = await _db.OutsideLabShipment.AsNoTracking()
+            var branchId = BranchContext.ResolveBranchId(Request, User);
+            var visitIds = await BranchContext.VisitIdsForBranchAsync(_db, branchId);
+
+            var shipmentIds = await (
+                from sh in _db.OutsideLabShipment.AsNoTracking()
+                join item in _db.OutsideLabShipmentItem.AsNoTracking() on sh.Id equals item.ShipmentId
+                join vs in _db.VisitService.AsNoTracking() on item.VisitServiceId equals vs.Id
+                where visitIds.Contains(vs.VisitId)
+                select sh.Id
+            ).Distinct().ToListAsync();
+
+            var ordered = await _db.OutsideLabShipment.AsNoTracking()
+                .Where(s => shipmentIds.Contains(s.Id))
                 .OrderByDescending(s => s.SentAt)
                 .Take(40)
+                .Select(s => s.Id)
                 .ToListAsync();
 
             var result = new List<ShipmentDto>();
-            foreach (var shipment in shipments)
+            foreach (var id in ordered)
             {
-                result.Add(await BuildShipmentDto(shipment.Id) ?? new ShipmentDto { Id = shipment.Id });
+                var dto = await BuildShipmentDto(id);
+                if (dto != null)
+                {
+                    result.Add(dto);
+                }
             }
 
             return Ok(result);
@@ -50,13 +68,33 @@ namespace ClinoraBE.Controllers
                 return BadRequest(new { message = "Outside lab not found." });
             }
 
+            var branchId = BranchContext.ResolveBranchId(Request, User);
+            var visitIds = await BranchContext.VisitIdsForBranchAsync(_db, branchId);
+
             var samples = await _db.LabSample
-                .Where(s => request.SampleIds.Contains(s.Id) && s.IsSendOut)
+                .Where(s => request.SampleIds.Contains(s.Id) && s.IsSendOut && s.SampleStatus != "Rejected")
                 .ToListAsync();
 
             if (samples.Count != request.SampleIds.Count)
             {
                 return BadRequest(new { message = "One or more send-out samples were not found." });
+            }
+
+            if (samples.Any(s => !visitIds.Contains(s.VisitId)))
+            {
+                return BadRequest(new { message = "One or more samples are outside this branch." });
+            }
+
+            var mismatched = samples
+                .Where(s => s.OutsideLabId != null && s.OutsideLabId != request.OutsideLabId)
+                .Select(s => s.Barcode)
+                .ToList();
+            if (mismatched.Count > 0)
+            {
+                return BadRequest(new
+                {
+                    message = $"Samples belong to a different outside lab: {string.Join(", ", mismatched.Take(5))}."
+                });
             }
 
             var alreadyShipped = await _db.OutsideLabShipmentItem
@@ -78,6 +116,7 @@ namespace ClinoraBE.Controllers
                 Awb = string.IsNullOrWhiteSpace(request.Awb) ? null : request.Awb.Trim(),
                 Notes = string.IsNullOrWhiteSpace(request.Notes) ? null : request.Notes.Trim(),
                 SentAt = DateTime.Now,
+                ExpectedAt = request.ExpectedAt ?? DateTime.Now.AddDays(2),
                 SentBy = sentBy
             };
             _db.OutsideLabShipment.Add(shipment);
@@ -121,13 +160,18 @@ namespace ClinoraBE.Controllers
 
             var items = await _db.OutsideLabShipmentItem.Where(i => i.ShipmentId == id).ToListAsync();
             var resultsByVs = (request.Items ?? []).ToDictionary(i => i.VisitServiceId);
+            var withResults = 0;
 
             foreach (var item in items)
             {
                 var line = await _db.VisitService.FirstAsync(vs => vs.Id == item.VisitServiceId);
                 if (resultsByVs.TryGetValue(item.VisitServiceId, out var incoming) && !string.IsNullOrWhiteSpace(incoming.ResultText))
                 {
-                    var existing = await _db.TestResult.FirstOrDefaultAsync(r => r.VisitServiceId == line.Id);
+                    withResults++;
+                    var existing = await _db.TestResult
+                        .Where(r => r.VisitServiceId == line.Id && r.IsCurrent)
+                        .OrderByDescending(r => r.Version)
+                        .FirstOrDefaultAsync();
                     if (existing == null)
                     {
                         _db.TestResult.Add(new TestResult
@@ -138,14 +182,18 @@ namespace ClinoraBE.Controllers
                             Units = string.IsNullOrWhiteSpace(incoming.Units) ? null : incoming.Units.Trim(),
                             ReferenceRange = string.IsNullOrWhiteSpace(incoming.ReferenceRange) ? null : incoming.ReferenceRange.Trim(),
                             EnteredByName = "Outside lab receive",
-                            EnteredAt = DateTime.Now
+                            EnteredAt = DateTime.Now,
+                            Version = 1,
+                            IsCurrent = true
                         });
                     }
                     else
                     {
                         existing.ResultText = incoming.ResultText.Trim();
-                        existing.Units = string.IsNullOrWhiteSpace(incoming.Units) ? null : incoming.Units.Trim();
-                        existing.ReferenceRange = string.IsNullOrWhiteSpace(incoming.ReferenceRange) ? null : incoming.ReferenceRange.Trim();
+                        existing.Units = string.IsNullOrWhiteSpace(incoming.Units) ? existing.Units : incoming.Units.Trim();
+                        existing.ReferenceRange = string.IsNullOrWhiteSpace(incoming.ReferenceRange)
+                            ? existing.ReferenceRange
+                            : incoming.ReferenceRange.Trim();
                         existing.Source = "Outside";
                         existing.EnteredAt = DateTime.Now;
                     }
@@ -153,15 +201,23 @@ namespace ClinoraBE.Controllers
                     line.Status = VisitServiceStatuses.ResultEntered;
                     line.ResultEnteredAt = DateTime.Now;
                 }
-                else
+                else if (line.Status == VisitServiceStatuses.SentOut)
                 {
-                    // Received without values → ready for local result entry
-                    line.Status = VisitServiceStatuses.InLab;
+                    // Keep SentOut until a value is pasted — do not force InLab on partial receive.
                 }
             }
 
-            shipment.Status = "Received";
-            shipment.ReceivedAt = DateTime.Now;
+            if (withResults == 0)
+            {
+                return BadRequest(new { message = "Paste at least one outside result before receiving." });
+            }
+
+            shipment.Status = withResults >= items.Count ? "Received" : "Partial";
+            if (shipment.Status == "Received")
+            {
+                shipment.ReceivedAt = DateTime.Now;
+            }
+
             if (!string.IsNullOrWhiteSpace(request.Notes))
             {
                 shipment.Notes = string.IsNullOrWhiteSpace(shipment.Notes)
@@ -211,6 +267,10 @@ namespace ClinoraBE.Controllers
                 Notes = shipment.Notes,
                 SentAt = shipment.SentAt,
                 ReceivedAt = shipment.ReceivedAt,
+                ExpectedAt = shipment.ExpectedAt,
+                IsOverdue = shipment.Status is "Sent" or "Partial"
+                            && shipment.ExpectedAt != null
+                            && shipment.ExpectedAt < DateTime.Now,
                 Items = items
             };
         }

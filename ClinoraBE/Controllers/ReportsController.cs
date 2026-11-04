@@ -1,3 +1,4 @@
+using ClinoraBE.Infrastructure;
 using ClinoraBE.Model.DAL;
 using ClinoraBE.Model.ViewModel;
 using Microsoft.AspNetCore.Authorization;
@@ -26,6 +27,12 @@ namespace ClinoraBE.Controllers
                 return BadRequest(new { message = "Select at least one test to finalize." });
             }
 
+            var branchId = BranchContext.ResolveBranchId(Request, User);
+            if (!await BranchContext.VisitAllowedAsync(_db, request.VisitId, branchId))
+            {
+                return NotFound(new { message = "Visit not found for this branch." });
+            }
+
             var lines = await _db.VisitService
                 .Where(vs => vs.VisitId == request.VisitId && request.VisitServiceIds.Contains(vs.Id))
                 .ToListAsync();
@@ -50,11 +57,10 @@ namespace ClinoraBE.Controllers
             }
 
             var serviceIds = lines.Select(l => l.ServiceId).Distinct().ToList();
-            var pathways = await _db.Service.AsNoTracking()
+            var services = await _db.Service.AsNoTracking()
                 .Where(s => serviceIds.Contains(s.Id))
-                .Select(s => s.Pathway)
-                .Distinct()
-                .ToListAsync();
+                .ToDictionaryAsync(s => s.Id);
+            var pathways = services.Values.Select(s => s.Pathway).Distinct().ToList();
             var pathway = pathways.Count == 1
                 ? pathways[0]
                 : pathways.Contains(ServicePathways.Radiology) && pathways.Contains(ServicePathways.Laboratory)
@@ -72,8 +78,34 @@ namespace ClinoraBE.Controllers
             _db.Report.Add(report);
             await _db.SaveChangesAsync();
 
-            var dto = await BuildReportDto(report.Id);
-            return Ok(dto);
+            var lineIds = lines.Select(l => l.Id).ToList();
+            var results = await _db.TestResult.AsNoTracking()
+                .Where(r => lineIds.Contains(r.VisitServiceId) && r.IsCurrent)
+                .ToDictionaryAsync(r => r.VisitServiceId);
+
+            foreach (var line in lines)
+            {
+                results.TryGetValue(line.Id, out var tr);
+                services.TryGetValue(line.ServiceId, out var service);
+                _db.ReportLine.Add(new ReportLine
+                {
+                    ReportId = report.Id,
+                    VisitServiceId = line.Id,
+                    ServiceName = service?.Name ?? ("Service " + line.ServiceId),
+                    ResultText = tr?.ResultText,
+                    Units = tr?.Units,
+                    ReferenceRange = tr?.ReferenceRange,
+                    ReportProfile = string.IsNullOrWhiteSpace(service?.ReportProfile)
+                        ? ReportProfiles.Standard
+                        : service!.ReportProfile,
+                    Urgent = line.Urgent,
+                    IsAbnormal = line.IsAbnormal,
+                    IsCritical = line.IsCritical
+                });
+            }
+
+            await _db.SaveChangesAsync();
+            return Ok(await BuildReportDto(report.Id));
         }
 
         [HttpGet("{id:int}")]
@@ -91,6 +123,12 @@ namespace ClinoraBE.Controllers
         [HttpGet("by-visit/{visitId:int}")]
         public async Task<ActionResult<List<ReportDto>>> ByVisit(int visitId)
         {
+            var branchId = BranchContext.ResolveBranchId(Request, User);
+            if (!await BranchContext.VisitAllowedAsync(_db, visitId, branchId))
+            {
+                return NotFound(new { message = "Visit not found for this branch." });
+            }
+
             var ids = await _db.Report.AsNoTracking()
                 .Where(r => r.VisitId == visitId)
                 .OrderByDescending(r => r.FinalizedAt)
@@ -108,6 +146,80 @@ namespace ClinoraBE.Controllers
             }
 
             return Ok(list);
+        }
+
+        /// <summary>
+        /// Report collection desk: today's finalized reports for the branch.
+        /// </summary>
+        [HttpGet("today")]
+        public async Task<ActionResult<List<ReportDto>>> Today()
+        {
+            var branchId = BranchContext.ResolveBranchId(Request, User);
+            var visitIds = await BranchContext.VisitIdsForBranchAsync(_db, branchId);
+            var start = DateTime.Today;
+            var end = start.AddDays(1);
+
+            var reportIds = await (
+                from r in _db.Report.AsNoTracking()
+                join v in _db.Visit.AsNoTracking() on r.VisitId equals v.Id
+                where visitIds.Contains(v.Id)
+                      && r.FinalizedAt >= start
+                      && r.FinalizedAt < end
+                orderby r.FinalizedAt descending
+                select r.Id
+            ).Take(100).ToListAsync();
+
+            return Ok(await BuildReportList(reportIds));
+        }
+
+        /// <summary>
+        /// Report collection desk: find finalized reports by visit number, phone, or patient name.
+        /// </summary>
+        [HttpGet("lookup")]
+        public async Task<ActionResult<List<ReportDto>>> Lookup([FromQuery] string? q)
+        {
+            var query = (q ?? string.Empty).Trim();
+            if (query.Length < 2)
+            {
+                return BadRequest(new { message = "Enter visit number, phone, or patient name." });
+            }
+
+            var branchId = BranchContext.ResolveBranchId(Request, User);
+            var visitIds = await BranchContext.VisitIdsForBranchAsync(_db, branchId);
+            var needle = query.ToLowerInvariant();
+            var compact = needle.Replace("v-", "", StringComparison.Ordinal).Replace("-", "", StringComparison.Ordinal);
+
+            var reportIds = await (
+                from r in _db.Report.AsNoTracking()
+                join v in _db.Visit.AsNoTracking() on r.VisitId equals v.Id
+                join p in _db.Patient.AsNoTracking() on v.PatientId equals p.Id
+                where visitIds.Contains(v.Id)
+                      && (
+                          v.VisitNumber.ToLower().Contains(needle)
+                          || v.VisitNumber.ToLower().Replace("v-", "").Contains(compact)
+                          || p.FullName.ToLower().Contains(needle)
+                          || (p.Phone != null && p.Phone.ToLower().Contains(needle))
+                      )
+                orderby r.FinalizedAt descending
+                select r.Id
+            ).Take(30).ToListAsync();
+
+            return Ok(await BuildReportList(reportIds));
+        }
+
+        private async Task<List<ReportDto>> BuildReportList(List<int> reportIds)
+        {
+            var list = new List<ReportDto>();
+            foreach (var id in reportIds)
+            {
+                var dto = await BuildReportDto(id);
+                if (dto != null)
+                {
+                    list.Add(dto);
+                }
+            }
+
+            return list;
         }
 
         [HttpPost("{id:int}/printed")]
@@ -135,23 +247,46 @@ namespace ClinoraBE.Controllers
             var visit = await _db.Visit.AsNoTracking().FirstAsync(v => v.Id == report.VisitId);
             var patient = await _db.Patient.AsNoTracking().FirstAsync(p => p.Id == visit.PatientId);
 
-            var lines = await (
-                from vs in _db.VisitService.AsNoTracking()
-                join s in _db.Service.AsNoTracking() on vs.ServiceId equals s.Id
-                join tr in _db.TestResult.AsNoTracking() on vs.Id equals tr.VisitServiceId into trj
-                from tr in trj.DefaultIfEmpty()
-                where vs.VisitId == visit.Id
-                      && vs.Status == VisitServiceStatuses.Finalized
-                      && vs.FinalizedAt == report.FinalizedAt
-                select new ReportLineDto
+            var snap = await _db.ReportLine.AsNoTracking()
+                .Where(l => l.ReportId == reportId)
+                .OrderBy(l => l.Id)
+                .Select(l => new ReportLineDto
                 {
-                    ServiceName = s.Name,
-                    ResultText = tr != null ? tr.ResultText : null,
-                    Units = tr != null ? tr.Units : null,
-                    ReferenceRange = tr != null ? tr.ReferenceRange : null,
-                    Urgent = vs.Urgent
-                }
-            ).ToListAsync();
+                    ServiceName = l.ServiceName,
+                    ResultText = l.ResultText,
+                    Units = l.Units,
+                    ReferenceRange = l.ReferenceRange,
+                    ReportProfile = string.IsNullOrWhiteSpace(l.ReportProfile) ? ReportProfiles.Standard : l.ReportProfile,
+                    Urgent = l.Urgent,
+                    IsAbnormal = l.IsAbnormal,
+                    IsCritical = l.IsCritical
+                })
+                .ToListAsync();
+
+            // Fallback for older reports created before ReportLine existed.
+            if (snap.Count == 0)
+            {
+                snap = await (
+                    from vs in _db.VisitService.AsNoTracking()
+                    join s in _db.Service.AsNoTracking() on vs.ServiceId equals s.Id
+                    join tr in _db.TestResult.AsNoTracking().Where(r => r.IsCurrent) on vs.Id equals tr.VisitServiceId into trj
+                    from tr in trj.DefaultIfEmpty()
+                    where vs.VisitId == visit.Id
+                          && vs.Status == VisitServiceStatuses.Finalized
+                          && vs.FinalizedAt == report.FinalizedAt
+                    select new ReportLineDto
+                    {
+                        ServiceName = s.Name,
+                        ResultText = tr != null ? tr.ResultText : null,
+                        Units = tr != null ? tr.Units : null,
+                        ReferenceRange = tr != null ? tr.ReferenceRange : null,
+                        ReportProfile = string.IsNullOrWhiteSpace(s.ReportProfile) ? ReportProfiles.Standard : s.ReportProfile,
+                        Urgent = vs.Urgent,
+                        IsAbnormal = vs.IsAbnormal,
+                        IsCritical = vs.IsCritical
+                    }
+                ).ToListAsync();
+            }
 
             return new ReportDto
             {
@@ -166,7 +301,7 @@ namespace ClinoraBE.Controllers
                 FinalizedByName = report.FinalizedByName,
                 FinalizedAt = report.FinalizedAt,
                 PrintCount = report.PrintCount,
-                Lines = lines
+                Lines = snap
             };
         }
     }

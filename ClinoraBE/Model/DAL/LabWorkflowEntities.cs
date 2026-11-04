@@ -55,6 +55,10 @@ namespace ClinoraBE.Model.DAL
         public DateTime CollectedAt { get; set; }
         public bool IsSendOut { get; set; }
         public int? OutsideLabId { get; set; }
+        public string SampleStatus { get; set; } = "Collected";
+        public string? RejectReason { get; set; }
+        public DateTime? RejectedAt { get; set; }
+        public string? RejectedByName { get; set; }
     }
 
     public partial class SampleTest
@@ -73,6 +77,7 @@ namespace ClinoraBE.Model.DAL
         public string? Notes { get; set; }
         public DateTime SentAt { get; set; }
         public DateTime? ReceivedAt { get; set; }
+        public DateTime? ExpectedAt { get; set; }
         public int? SentBy { get; set; }
     }
 
@@ -94,6 +99,11 @@ namespace ClinoraBE.Model.DAL
         public string? ReferenceRange { get; set; }
         public string? EnteredByName { get; set; }
         public DateTime EnteredAt { get; set; }
+        public int Version { get; set; } = 1;
+        public bool IsCurrent { get; set; } = true;
+        public bool IsAbnormal { get; set; }
+        public bool IsCritical { get; set; }
+        public string? ParameterName { get; set; }
     }
 
     public partial class Report
@@ -104,5 +114,53 @@ namespace ClinoraBE.Model.DAL
         public string? FinalizedByName { get; set; }
         public DateTime FinalizedAt { get; set; }
         public int PrintCount { get; set; }
+    }
+
+    public partial class ReportLine
+    {
+        public int Id { get; set; }
+        public int ReportId { get; set; }
+        public int VisitServiceId { get; set; }
+        public string ServiceName { get; set; } = string.Empty;
+        public string? ResultText { get; set; }
+        public string? Units { get; set; }
+        public string? ReferenceRange { get; set; }
+        public string ReportProfile { get; set; } = "Standard";
+        public bool Urgent { get; set; }
+        public bool IsAbnormal { get; set; }
+        public bool IsCritical { get; set; }
+    }
+
+    public partial class RadiologyTemplate
+    {
+        public int Id { get; set; }
+        public string Name { get; set; } = string.Empty;
+        public string Modality { get; set; } = "XRay";
+        /// <summary>Radiology | Narrative (lab histo/cyto templates).</summary>
+        public string Profile { get; set; } = "Radiology";
+        /// <summary>Legacy single-service link; prefer RadiologyTemplateService rows.</summary>
+        public int? ServiceId { get; set; }
+        public string Body { get; set; } = string.Empty;
+        public bool Status { get; set; } = true;
+        public DateTime CreatedOn { get; set; } = DateTime.UtcNow;
+    }
+
+    public partial class RadiologyTemplateService
+    {
+        public int Id { get; set; }
+        public int TemplateId { get; set; }
+        public int ServiceId { get; set; }
+    }
+
+    public partial class ServiceParameter
+    {
+        public int Id { get; set; }
+        public int ServiceId { get; set; }
+        public string Name { get; set; } = string.Empty;
+        public string? Unit { get; set; }
+        public decimal? RefLow { get; set; }
+        public decimal? RefHigh { get; set; }
+        public int SortOrder { get; set; }
+        public bool Status { get; set; } = true;
     }
 }

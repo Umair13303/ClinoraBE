@@ -53,6 +53,8 @@ namespace ClinoraBE.Data
 
                 IF COL_LENGTH('dbo.Service', 'Pathway') IS NULL
                   ALTER TABLE dbo.Service ADD Pathway NVARCHAR(40) NOT NULL CONSTRAINT DF_Service_Pathway DEFAULT N'Laboratory';
+                IF COL_LENGTH('dbo.Service', 'ReportProfile') IS NULL
+                  ALTER TABLE dbo.Service ADD ReportProfile NVARCHAR(40) NOT NULL CONSTRAINT DF_Service_ReportProfile DEFAULT N'Standard';
                 IF COL_LENGTH('dbo.Service', 'SampleTypeId') IS NULL
                   ALTER TABLE dbo.Service ADD SampleTypeId INT NULL;
                 IF COL_LENGTH('dbo.Service', 'ContainerId') IS NULL

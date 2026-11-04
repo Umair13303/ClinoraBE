@@ -1,3 +1,4 @@
+using ClinoraBE.Infrastructure;
 using ClinoraBE.Model.DAL;
 using ClinoraBE.Model.ViewModel;
 using Microsoft.AspNetCore.Authorization;
@@ -30,6 +31,17 @@ namespace ClinoraBE.Controllers
             if (visit == null)
             {
                 return BadRequest(new { message = "Visit not found." });
+            }
+
+            var branchId = BranchContext.ResolveBranchId(Request, User);
+            if (!BranchContext.Matches(visit.BranchId, branchId))
+            {
+                return BadRequest(new { message = "Visit not found for this branch." });
+            }
+
+            if (visit.VisitStatus == VisitStatuses.Cancelled)
+            {
+                return BadRequest(new { message = "Cannot collect samples for a cancelled visit." });
             }
 
             var lines = await _db.VisitService
@@ -82,6 +94,80 @@ namespace ClinoraBE.Controllers
             return Ok(await BuildBarcodeDto(sample.Id));
         }
 
+        [HttpPost("{id:int}/reject")]
+        public async Task<ActionResult> Reject(int id, [FromBody] RejectSampleRequest request)
+        {
+            if (string.IsNullOrWhiteSpace(request.Reason))
+            {
+                return BadRequest(new { message = "Enter a reject reason." });
+            }
+
+            var sample = await _db.LabSample.FirstOrDefaultAsync(s => s.Id == id);
+            if (sample == null)
+            {
+                return NotFound(new { message = "Sample not found." });
+            }
+
+            if (sample.SampleStatus == "Rejected")
+            {
+                return BadRequest(new { message = "Sample already rejected." });
+            }
+
+            var visit = await _db.Visit.AsNoTracking().FirstOrDefaultAsync(v => v.Id == sample.VisitId);
+            var branchId = BranchContext.ResolveBranchId(Request, User);
+            if (visit == null || !BranchContext.Matches(visit.BranchId, branchId))
+            {
+                return NotFound(new { message = "Sample not found for this branch." });
+            }
+
+            if (await _db.OutsideLabShipmentItem.AsNoTracking().AnyAsync(i => i.SampleId == id))
+            {
+                return BadRequest(new { message = "Cannot reject a sample that is already on a shipment." });
+            }
+
+            var links = await _db.SampleTest.Where(st => st.SampleId == id).ToListAsync();
+            var lineIds = links.Select(l => l.VisitServiceId).ToList();
+            var lines = await _db.VisitService.Where(vs => lineIds.Contains(vs.Id)).ToListAsync();
+            if (lines.Any(l => l.Status is VisitServiceStatuses.Finalized or VisitServiceStatuses.ResultEntered or VisitServiceStatuses.SentOut))
+            {
+                return BadRequest(new { message = "Cannot reject after result entry, send-out, or finalize." });
+            }
+
+            sample.SampleStatus = "Rejected";
+            sample.RejectReason = request.Reason.Trim();
+            sample.RejectedAt = DateTime.Now;
+            sample.RejectedByName = string.IsNullOrWhiteSpace(request.RejectedByName) ? null : request.RejectedByName.Trim();
+
+            foreach (var line in lines)
+            {
+                line.Status = VisitServiceStatuses.Rejected;
+                line.RejectReason = sample.RejectReason;
+                line.RejectedAt = sample.RejectedAt;
+                line.RejectedByName = sample.RejectedByName;
+                line.SampleId = null;
+
+                if (request.Redraw)
+                {
+                    _db.VisitService.Add(new VisitService
+                    {
+                        VisitId = line.VisitId,
+                        ServiceId = line.ServiceId,
+                        Fee = line.Fee,
+                        Discount = line.Discount,
+                        Urgent = line.Urgent,
+                        StaffId = line.StaffId,
+                        StaffName = line.StaffName,
+                        ReadyBy = line.ReadyBy,
+                        Status = VisitServiceStatuses.AwaitingCollection,
+                        IsSendOut = false
+                    });
+                }
+            }
+
+            await _db.SaveChangesAsync();
+            return Ok(new { message = request.Redraw ? "Sample rejected. Redraw queued." : "Sample rejected." });
+        }
+
         [HttpGet("{id:int}/barcode")]
         public async Task<ActionResult<SampleBarcodeDto>> Barcode(int id)
         {
@@ -97,7 +183,11 @@ namespace ClinoraBE.Controllers
         [HttpGet("recent")]
         public async Task<ActionResult<List<SampleBarcodeDto>>> Recent()
         {
+            var branchId = BranchContext.ResolveBranchId(Request, User);
+            var visitIds = await BranchContext.VisitIdsForBranchAsync(_db, branchId);
+
             var ids = await _db.LabSample.AsNoTracking()
+                .Where(s => visitIds.Contains(s.VisitId) && s.SampleStatus != "Rejected")
                 .OrderByDescending(s => s.CollectedAt)
                 .Take(30)
                 .Select(s => s.Id)
@@ -119,6 +209,9 @@ namespace ClinoraBE.Controllers
         [HttpGet("send-out-pending")]
         public async Task<ActionResult<List<SendOutSampleDto>>> SendOutPending()
         {
+            var branchId = BranchContext.ResolveBranchId(Request, User);
+            var visitIds = await BranchContext.VisitIdsForBranchAsync(_db, branchId);
+
             var shippedSampleIds = await _db.OutsideLabShipmentItem.AsNoTracking()
                 .Select(i => i.SampleId)
                 .Distinct()
@@ -130,7 +223,10 @@ namespace ClinoraBE.Controllers
                 join p in _db.Patient.AsNoTracking() on v.PatientId equals p.Id
                 join ol in _db.OutsideLab.AsNoTracking() on s.OutsideLabId equals ol.Id into olj
                 from ol in olj.DefaultIfEmpty()
-                where s.IsSendOut && !shippedSampleIds.Contains(s.Id)
+                where s.IsSendOut
+                      && s.SampleStatus != "Rejected"
+                      && !shippedSampleIds.Contains(s.Id)
+                      && visitIds.Contains(v.Id)
                 orderby s.CollectedAt descending
                 select new { s, v, p, OutsideLabName = ol != null ? ol.Name : null }
             ).Take(50).ToListAsync();

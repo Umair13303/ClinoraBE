@@ -31,6 +31,10 @@ namespace ClinoraBE.Model.DAL
         public virtual DbSet<OutsideLabShipmentItem> OutsideLabShipmentItem { get; set; }
         public virtual DbSet<TestResult> TestResult { get; set; }
         public virtual DbSet<Report> Report { get; set; }
+        public virtual DbSet<ReportLine> ReportLine { get; set; }
+        public virtual DbSet<RadiologyTemplate> RadiologyTemplate { get; set; }
+        public virtual DbSet<RadiologyTemplateService> RadiologyTemplateService { get; set; }
+        public virtual DbSet<ServiceParameter> ServiceParameter { get; set; }
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
@@ -103,6 +107,19 @@ namespace ClinoraBE.Model.DAL
             modelBuilder.Entity<OutsideLabShipmentItem>().ToTable("OutsideLabShipmentItem");
             modelBuilder.Entity<TestResult>().ToTable("TestResult");
             modelBuilder.Entity<Report>().ToTable("Report");
+            modelBuilder.Entity<ReportLine>().ToTable("ReportLine");
+            modelBuilder.Entity<RadiologyTemplate>().ToTable("RadiologyTemplate");
+            modelBuilder.Entity<RadiologyTemplateService>(entity =>
+            {
+                entity.ToTable("RadiologyTemplateService");
+                entity.HasIndex(e => new { e.TemplateId, e.ServiceId }).IsUnique();
+            });
+            modelBuilder.Entity<ServiceParameter>(entity =>
+            {
+                entity.ToTable("ServiceParameter");
+                entity.Property(e => e.RefLow).HasColumnType("decimal(18,4)");
+                entity.Property(e => e.RefHigh).HasColumnType("decimal(18,4)");
+            });
 
             OnModelCreatingPartial(modelBuilder);
         }
@@ -142,6 +159,7 @@ namespace ClinoraBE.Model.DAL
         public string? Email { get; set; }
         public string? Address { get; set; }
         public string? NTN { get; set; }
+        public string? Code { get; set; }
     }
 
     public partial class User
@@ -193,6 +211,7 @@ namespace ClinoraBE.Model.DAL
         public int NormalMinutes { get; set; }
         public int UrgentMinutes { get; set; }
         public string Pathway { get; set; } = "Laboratory";
+        public string ReportProfile { get; set; } = "Standard";
         public int? SampleTypeId { get; set; }
         public int? ContainerId { get; set; }
         public int? BottleColorId { get; set; }
@@ -238,6 +257,8 @@ namespace ClinoraBE.Model.DAL
         public int Id { get; set; }
         public string VisitNumber { get; set; } = string.Empty;
         public int PatientId { get; set; }
+        public int? TokenNo { get; set; }
+        public string VisitStatus { get; set; } = "Active";
         public decimal PercentOff { get; set; }
         public decimal VisitOff { get; set; }
         public decimal Fees { get; set; }
@@ -273,5 +294,10 @@ namespace ClinoraBE.Model.DAL
         public DateTime? ResultEnteredAt { get; set; }
         public DateTime? FinalizedAt { get; set; }
         public string? FinalizedByName { get; set; }
+        public string? RejectReason { get; set; }
+        public DateTime? RejectedAt { get; set; }
+        public string? RejectedByName { get; set; }
+        public bool IsAbnormal { get; set; }
+        public bool IsCritical { get; set; }
     }
 }
