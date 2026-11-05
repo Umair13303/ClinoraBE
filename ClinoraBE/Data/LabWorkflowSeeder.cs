@@ -130,12 +130,26 @@ namespace ClinoraBE.Data
                   Id INT IDENTITY(1,1) PRIMARY KEY,
                   VisitServiceId INT NOT NULL,
                   Source NVARCHAR(40) NOT NULL,
-                  ResultText NVARCHAR(2000) NOT NULL,
+                  ResultText NVARCHAR(MAX) NOT NULL,
                   Units NVARCHAR(40) NULL,
                   ReferenceRange NVARCHAR(200) NULL,
                   EnteredByName NVARCHAR(200) NULL,
                   EnteredAt DATETIME2 NOT NULL
                 );
+
+                -- Radiology HTML reports need MAX; older installs used NVARCHAR(2000).
+                IF COL_LENGTH('dbo.TestResult', 'ResultText') IS NOT NULL
+                   AND EXISTS (
+                     SELECT 1 FROM sys.columns c
+                     JOIN sys.types t ON c.user_type_id = t.user_type_id
+                     WHERE c.object_id = OBJECT_ID('dbo.TestResult')
+                       AND c.name = 'ResultText'
+                       AND t.name = N'nvarchar'
+                       AND c.max_length > 0
+                   )
+                BEGIN
+                  ALTER TABLE dbo.TestResult ALTER COLUMN ResultText NVARCHAR(MAX) NOT NULL;
+                END
 
                 IF OBJECT_ID('dbo.Report','U') IS NULL
                 CREATE TABLE dbo.Report (
@@ -242,6 +256,10 @@ namespace ClinoraBE.Data
                     _ => ServicePathways.Laboratory
                 };
                 service.Pathway = pathway;
+                if (pathway == ServicePathways.Radiology)
+                {
+                    service.ReportProfile = ReportProfiles.Radiology;
+                }
 
                 if (pathway != ServicePathways.Laboratory)
                 {

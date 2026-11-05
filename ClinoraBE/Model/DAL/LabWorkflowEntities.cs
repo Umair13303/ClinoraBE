@@ -53,6 +53,8 @@ namespace ClinoraBE.Model.DAL
         public string Barcode { get; set; } = string.Empty;
         public string? PhlebotomistName { get; set; }
         public DateTime CollectedAt { get; set; }
+        public DateTime? ReceivedAt { get; set; }
+        public string? ReceivedBy { get; set; }
         public bool IsSendOut { get; set; }
         public int? OutsideLabId { get; set; }
         public string SampleStatus { get; set; } = "Collected";

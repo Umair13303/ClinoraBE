@@ -9,6 +9,7 @@ namespace ClinoraBE.Model.ViewModel
         public const string SentOut = "SentOut";
         public const string ResultEntered = "ResultEntered";
         public const string AwaitingImaging = "AwaitingImaging";
+        public const string Performed = "Performed";
         public const string Imaged = "Imaged";
         public const string Finalized = "Finalized";
         public const string Rejected = "Rejected";
@@ -126,7 +127,36 @@ namespace ClinoraBE.Model.ViewModel
         public string? SampleGroupName { get; set; }
         public bool IsSendOut { get; set; }
         public string? OutsideLabName { get; set; }
+        public string SampleStatus { get; set; } = "Collected";
         public DateTime CollectedAt { get; set; }
+        public DateTime? ReceivedAt { get; set; }
+        public string? ReceivedBy { get; set; }
+        public List<string> Tests { get; set; } = [];
+    }
+
+    public class ReceiveSampleRequest
+    {
+        public string? ReceivedBy { get; set; }
+    }
+
+    public class ReceiveByBarcodeRequest
+    {
+        public string Barcode { get; set; } = string.Empty;
+        public string? ReceivedBy { get; set; }
+    }
+
+    public class ReceivingSampleDto
+    {
+        public int SampleId { get; set; }
+        public string Barcode { get; set; } = string.Empty;
+        public string VisitNumber { get; set; } = string.Empty;
+        public string PatientName { get; set; } = string.Empty;
+        public string? SampleGroupName { get; set; }
+        public string SampleTypeName { get; set; } = string.Empty;
+        public string ContainerName { get; set; } = string.Empty;
+        public string BottleColorName { get; set; } = string.Empty;
+        public DateTime CollectedAt { get; set; }
+        public string? PhlebotomistName { get; set; }
         public List<string> Tests { get; set; } = [];
     }
 
@@ -227,6 +257,12 @@ namespace ClinoraBE.Model.ViewModel
         public string? ReadyBy { get; set; }
         public string? ExistingFindings { get; set; }
         public string? TemplateName { get; set; }
+    }
+
+    public class RadiologyPerformRequest
+    {
+        public int VisitServiceId { get; set; }
+        public string? PerformedByName { get; set; }
     }
 
     public class RadiologyCompleteRequest
@@ -343,6 +379,7 @@ namespace ClinoraBE.Model.ViewModel
     public class WorklistSummaryDto
     {
         public int AwaitingCollection { get; set; }
+        public int Collected { get; set; }
         public int InLab { get; set; }
         public int SentOut { get; set; }
         public int AwaitingFinalize { get; set; }
