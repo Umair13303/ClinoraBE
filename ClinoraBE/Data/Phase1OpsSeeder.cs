@@ -71,6 +71,8 @@ namespace ClinoraBE.Data
 
                 IF COL_LENGTH('dbo.ReportLine', 'ReportProfile') IS NULL
                   ALTER TABLE dbo.ReportLine ADD ReportProfile NVARCHAR(40) NOT NULL CONSTRAINT DF_ReportLine_ReportProfile DEFAULT N'Standard';
+                IF COL_LENGTH('dbo.ReportLine', 'ParameterName') IS NULL
+                  ALTER TABLE dbo.ReportLine ADD ParameterName NVARCHAR(100) NULL;
 
                 IF OBJECT_ID('dbo.ReportLine','U') IS NULL
                 CREATE TABLE dbo.ReportLine (
@@ -78,6 +80,7 @@ namespace ClinoraBE.Data
                   ReportId INT NOT NULL,
                   VisitServiceId INT NOT NULL,
                   ServiceName NVARCHAR(200) NOT NULL,
+                  ParameterName NVARCHAR(100) NULL,
                   ResultText NVARCHAR(MAX) NULL,
                   Units NVARCHAR(40) NULL,
                   ReferenceRange NVARCHAR(100) NULL,
@@ -191,19 +194,10 @@ namespace ClinoraBE.Data
                     Modality = "XRay",
                     ServiceId = xray?.Id,
                     Body = """
-                        CLINICAL HISTORY:
-                        —
-
-                        TECHNIQUE:
-                        Frontal chest radiograph (PA).
-
-                        FINDINGS:
-                        The lungs are clear. No focal consolidation, pleural effusion, or pneumothorax.
-                        The cardiomediastinal silhouette is within normal limits.
-                        The visualized bony structures are intact.
-
-                        IMPRESSION:
-                        No acute cardiopulmonary process.
+                        <p><strong>CLINICAL HISTORY:</strong></p><p>—</p>
+                        <p><strong>TECHNIQUE:</strong></p><p>Frontal chest radiograph (PA).</p>
+                        <p><strong>FINDINGS:</strong></p><p>The lungs are clear. No focal consolidation, pleural effusion, or pneumothorax. The cardiomediastinal silhouette is within normal limits. The visualized bony structures are intact.</p>
+                        <p><strong>IMPRESSION:</strong></p><p>No acute cardiopulmonary process.</p>
                         """,
                     Status = true,
                     CreatedOn = DateTime.UtcNow
@@ -214,23 +208,10 @@ namespace ClinoraBE.Data
                     Modality = "Ultrasound",
                     ServiceId = us?.Id,
                     Body = """
-                        CLINICAL HISTORY:
-                        —
-
-                        TECHNIQUE:
-                        Transabdominal ultrasound of the abdomen.
-
-                        FINDINGS:
-                        Liver: Normal size and echotexture. No focal lesion.
-                        Gallbladder: No stones. Wall not thickened.
-                        CBD: Not dilated.
-                        Pancreas: Visualized portions unremarkable.
-                        Spleen: Normal.
-                        Kidneys: Normal size and echogenicity bilaterally. No hydronephrosis.
-                        Ascites: None.
-
-                        IMPRESSION:
-                        Normal abdominal ultrasound.
+                        <p><strong>CLINICAL HISTORY:</strong></p><p>—</p>
+                        <p><strong>TECHNIQUE:</strong></p><p>Transabdominal ultrasound of the abdomen.</p>
+                        <p><strong>FINDINGS:</strong></p><p>Liver: Normal size and echotexture. No focal lesion.<br/>Gallbladder: No stones. Wall not thickened.<br/>CBD: Not dilated.<br/>Pancreas: Visualized portions unremarkable.<br/>Spleen: Normal.<br/>Kidneys: Normal size and echogenicity bilaterally. No hydronephrosis.<br/>Ascites: None.</p>
+                        <p><strong>IMPRESSION:</strong></p><p>Normal abdominal ultrasound.</p>
                         """,
                     Status = true,
                     CreatedOn = DateTime.UtcNow
@@ -241,21 +222,10 @@ namespace ClinoraBE.Data
                     Modality = "CT",
                     ServiceId = ct?.Id,
                     Body = """
-                        CLINICAL HISTORY:
-                        —
-
-                        TECHNIQUE:
-                        Non-contrast CT of the head.
-
-                        FINDINGS:
-                        No acute intracranial hemorrhage.
-                        No large territorial infarct.
-                        Ventricles and basal cisterns are patent.
-                        No significant mass effect or midline shift.
-                        Calvarium intact.
-
-                        IMPRESSION:
-                        No acute intracranial abnormality.
+                        <p><strong>CLINICAL HISTORY:</strong></p><p>—</p>
+                        <p><strong>TECHNIQUE:</strong></p><p>Non-contrast CT of the head.</p>
+                        <p><strong>FINDINGS:</strong></p><p>No acute intracranial hemorrhage. No large territorial infarct. Ventricles and basal cisterns are patent. No significant mass effect or midline shift. Calvarium intact.</p>
+                        <p><strong>IMPRESSION:</strong></p><p>No acute intracranial abnormality.</p>
                         """,
                     Status = true,
                     CreatedOn = DateTime.UtcNow
@@ -280,13 +250,16 @@ namespace ClinoraBE.Data
             }
 
             // Specialty lab services + narrative histo template.
+            var semenType = await db.SampleType.AsNoTracking().FirstOrDefaultAsync(t => t.Code == "SEMEN");
+            var tissueType = await db.SampleType.AsNoTracking().FirstOrDefaultAsync(t => t.Code == "TISSUE");
+            var sterilePot = await db.Container.AsNoTracking().FirstOrDefaultAsync(c => c.Code == "STERILEPOT" || c.Code == "URINEPOT");
+            var formalinPot = await db.Container.AsNoTracking().FirstOrDefaultAsync(c => c.Code == "FORMALIN" || c.Code == "URINEPOT");
+            var clearColor = await db.BottleColor.AsNoTracking().FirstOrDefaultAsync(c => c.Code == "CLEAR");
+            var semenGroup = await db.SampleGroup.AsNoTracking().FirstOrDefaultAsync(g => g.Code == "SEMEN");
+            var tissueGroup = await db.SampleGroup.AsNoTracking().FirstOrDefaultAsync(g => g.Code == "TISSUE");
+
             if (!await db.Service.AnyAsync(s => s.Name == "Semen Analysis"))
             {
-                var urineType = await db.SampleType.AsNoTracking().FirstOrDefaultAsync(t => t.Code == "URINE" || t.Name.Contains("Urine"));
-                var urinePot = await db.Container.AsNoTracking().FirstOrDefaultAsync(c => c.Code == "URINEPOT");
-                var clear = await db.BottleColor.AsNoTracking().FirstOrDefaultAsync(c => c.Code == "CLEAR");
-                var urineGroup = await db.SampleGroup.AsNoTracking().FirstOrDefaultAsync(g => g.Code == "URINE");
-
                 db.Service.Add(new Service
                 {
                     Name = "Semen Analysis",
@@ -296,10 +269,10 @@ namespace ClinoraBE.Data
                     UrgentMinutes = 60,
                     Pathway = ServicePathways.Laboratory,
                     ReportProfile = ReportProfiles.Semen,
-                    SampleTypeId = urineType?.Id,
-                    ContainerId = urinePot?.Id,
-                    BottleColorId = clear?.Id,
-                    SampleGroupId = urineGroup?.Id,
+                    SampleTypeId = semenType?.Id,
+                    ContainerId = sterilePot?.Id,
+                    BottleColorId = clearColor?.Id,
+                    SampleGroupId = semenGroup?.Id,
                     CanSendOut = false,
                     Status = true,
                     CreatedOn = DateTime.UtcNow
@@ -309,19 +282,40 @@ namespace ClinoraBE.Data
             else
             {
                 var semen = await db.Service.FirstAsync(s => s.Name == "Semen Analysis");
+                var changed = false;
                 if (string.IsNullOrWhiteSpace(semen.ReportProfile) || semen.ReportProfile == ReportProfiles.Standard)
                 {
                     semen.ReportProfile = ReportProfiles.Semen;
+                    changed = true;
+                }
+                if (semenType != null && semen.SampleTypeId != semenType.Id)
+                {
+                    semen.SampleTypeId = semenType.Id;
+                    changed = true;
+                }
+                if (sterilePot != null && (semen.ContainerId == null || semen.ContainerId != sterilePot.Id))
+                {
+                    semen.ContainerId = sterilePot.Id;
+                    changed = true;
+                }
+                if (clearColor != null && semen.BottleColorId == null)
+                {
+                    semen.BottleColorId = clearColor.Id;
+                    changed = true;
+                }
+                if (semenGroup != null && semen.SampleGroupId != semenGroup.Id)
+                {
+                    semen.SampleGroupId = semenGroup.Id;
+                    changed = true;
+                }
+                if (changed)
+                {
                     await db.SaveChangesAsync();
                 }
             }
 
             if (!await db.Service.AnyAsync(s => s.Name == "Histopathology"))
             {
-                var tissue = await db.SampleType.AsNoTracking().FirstOrDefaultAsync(t => t.Code == "TISSUE" || t.Name.Contains("Tissue"));
-                var pot = await db.Container.AsNoTracking().FirstOrDefaultAsync(c => c.Code == "URINEPOT" || c.Code == "SST");
-                var clear = await db.BottleColor.AsNoTracking().FirstOrDefaultAsync(c => c.Code == "CLEAR" || c.Code == "GOLD");
-
                 db.Service.Add(new Service
                 {
                     Name = "Histopathology",
@@ -331,9 +325,10 @@ namespace ClinoraBE.Data
                     UrgentMinutes = 1440,
                     Pathway = ServicePathways.Laboratory,
                     ReportProfile = ReportProfiles.Narrative,
-                    SampleTypeId = tissue?.Id,
-                    ContainerId = pot?.Id,
-                    BottleColorId = clear?.Id,
+                    SampleTypeId = tissueType?.Id,
+                    ContainerId = formalinPot?.Id,
+                    BottleColorId = clearColor?.Id,
+                    SampleGroupId = tissueGroup?.Id,
                     CanSendOut = false,
                     Status = true,
                     CreatedOn = DateTime.UtcNow
@@ -343,9 +338,34 @@ namespace ClinoraBE.Data
             else
             {
                 var histo = await db.Service.FirstAsync(s => s.Name == "Histopathology");
+                var changed = false;
                 if (string.IsNullOrWhiteSpace(histo.ReportProfile) || histo.ReportProfile == ReportProfiles.Standard)
                 {
                     histo.ReportProfile = ReportProfiles.Narrative;
+                    changed = true;
+                }
+                if (tissueType != null && histo.SampleTypeId != tissueType.Id)
+                {
+                    histo.SampleTypeId = tissueType.Id;
+                    changed = true;
+                }
+                if (formalinPot != null && (histo.ContainerId == null || histo.ContainerId != formalinPot.Id))
+                {
+                    histo.ContainerId = formalinPot.Id;
+                    changed = true;
+                }
+                if (clearColor != null && histo.BottleColorId == null)
+                {
+                    histo.BottleColorId = clearColor.Id;
+                    changed = true;
+                }
+                if (tissueGroup != null && histo.SampleGroupId != tissueGroup.Id)
+                {
+                    histo.SampleGroupId = tissueGroup.Id;
+                    changed = true;
+                }
+                if (changed)
+                {
                     await db.SaveChangesAsync();
                 }
             }
@@ -395,10 +415,12 @@ namespace ClinoraBE.Data
                 $"DEMO-XRY-{day}",
                 $"DEMO-ALL-{day}"
             };
-            // Always ensure the combined same-visit demo exists for today.
-            var needSingles = !await db.Visit.AnyAsync(v => demos[0] == v.VisitNumber);
-            var needCombined = !await db.Visit.AnyAsync(v => demos[4] == v.VisitNumber);
-            if (!needSingles && !needCombined)
+            var existing = await db.Visit.AsNoTracking()
+                .Where(v => demos.Contains(v.VisitNumber))
+                .Select(v => v.VisitNumber)
+                .ToListAsync();
+            var need = demos.Where(d => !existing.Contains(d)).ToHashSet();
+            if (need.Count == 0)
             {
                 return;
             }
@@ -416,8 +438,14 @@ namespace ClinoraBE.Data
             }
 
             var now = DateTime.Now;
+            var cbcParams = new List<(string? Param, string Result, string? Units, string? Ref)>
+            {
+                ("Hemoglobin", "14.2", "g/dL", "12–16"),
+                ("WBC", "7.5", "10^3/uL", "4–11"),
+                ("Platelets", "250", "10^3/uL", "150–450")
+            };
 
-            async Task<(Patient Patient, Visit Visit, VisitService Line, Report Report)> AddDemoAsync(
+            async Task AddDemoAsync(
                 string visitNumber,
                 string patientName,
                 string phone,
@@ -426,10 +454,7 @@ namespace ClinoraBE.Data
                 Service service,
                 string pathway,
                 string reportProfile,
-                string resultText,
-                string? units,
-                string? referenceRange,
-                string? parameterName,
+                List<(string? Param, string Result, string? Units, string? Ref)> results,
                 string doctor)
             {
                 var patient = new Patient
@@ -475,20 +500,6 @@ namespace ClinoraBE.Data
                 db.VisitService.Add(line);
                 await db.SaveChangesAsync();
 
-                db.TestResult.Add(new TestResult
-                {
-                    VisitServiceId = line.Id,
-                    Source = "Demo",
-                    ResultText = resultText,
-                    Units = units,
-                    ReferenceRange = referenceRange,
-                    ParameterName = parameterName,
-                    EnteredByName = doctor,
-                    EnteredAt = now.AddMinutes(-30),
-                    Version = 1,
-                    IsCurrent = true
-                });
-
                 var report = new Report
                 {
                     VisitId = visit.Id,
@@ -500,19 +511,36 @@ namespace ClinoraBE.Data
                 db.Report.Add(report);
                 await db.SaveChangesAsync();
 
-                db.ReportLine.Add(new ReportLine
+                foreach (var row in results)
                 {
-                    ReportId = report.Id,
-                    VisitServiceId = line.Id,
-                    ServiceName = service.Name,
-                    ResultText = resultText,
-                    Units = units,
-                    ReferenceRange = referenceRange,
-                    ReportProfile = reportProfile,
-                    Urgent = false
-                });
+                    db.TestResult.Add(new TestResult
+                    {
+                        VisitServiceId = line.Id,
+                        Source = "Demo",
+                        ResultText = row.Result,
+                        Units = row.Units,
+                        ReferenceRange = row.Ref,
+                        ParameterName = row.Param,
+                        EnteredByName = doctor,
+                        EnteredAt = now.AddMinutes(-30),
+                        Version = 1,
+                        IsCurrent = true
+                    });
+                    db.ReportLine.Add(new ReportLine
+                    {
+                        ReportId = report.Id,
+                        VisitServiceId = line.Id,
+                        ServiceName = service.Name,
+                        ParameterName = row.Param,
+                        ResultText = row.Result,
+                        Units = row.Units,
+                        ReferenceRange = row.Ref,
+                        ReportProfile = reportProfile,
+                        Urgent = false
+                    });
+                }
+
                 await db.SaveChangesAsync();
-                return (patient, visit, line, report);
             }
 
             var semenJson = """
@@ -532,100 +560,85 @@ namespace ClinoraBE.Data
                 <p><strong>IMPRESSION:</strong></p><p>No acute cardiopulmonary process.</p>
                 """;
 
-            if (needSingles)
+            if (need.Contains(demos[0]) && cbc != null)
             {
-                if (cbc != null)
-                {
-                    await AddDemoAsync(
-                        demos[0],
-                        "Ahmed Khan (Demo CBC)",
-                        "03001234001",
-                        32,
-                        "Male",
-                        cbc,
-                        ServicePathways.Laboratory,
-                        ReportProfiles.Standard,
-                        "14.2",
-                        "g/dL",
-                        "12–16",
-                        "Hemoglobin",
-                        "Dr. Demo Pathologist");
-                }
+                await AddDemoAsync(
+                    demos[0],
+                    "Ahmed Khan (Demo CBC)",
+                    "03001234001",
+                    32,
+                    "Male",
+                    cbc,
+                    ServicePathways.Laboratory,
+                    ReportProfiles.Standard,
+                    cbcParams,
+                    "Dr. Demo Pathologist");
+            }
 
-                if (semen != null)
-                {
-                    await AddDemoAsync(
-                        demos[1],
-                        "Bilal Hussain (Demo Semen)",
-                        "03001234002",
-                        28,
-                        "Male",
-                        semen,
-                        ServicePathways.Laboratory,
-                        ReportProfiles.Semen,
-                        semenJson,
-                        null,
-                        null,
-                        "Semen worksheet",
-                        "Dr. Demo Pathologist");
-                }
+            if (need.Contains(demos[1]) && semen != null)
+            {
+                await AddDemoAsync(
+                    demos[1],
+                    "Bilal Hussain (Demo Semen)",
+                    "03001234002",
+                    28,
+                    "Male",
+                    semen,
+                    ServicePathways.Laboratory,
+                    ReportProfiles.Semen,
+                    [("Semen worksheet", semenJson, null, null)],
+                    "Dr. Demo Pathologist");
+            }
 
-                if (histo != null)
-                {
-                    await AddDemoAsync(
-                        demos[2],
-                        "Sara Ali (Demo Histo)",
-                        "03001234003",
-                        26,
-                        "Female",
-                        histo,
-                        ServicePathways.Laboratory,
-                        ReportProfiles.Narrative,
-                        histoHtml,
-                        null,
-                        null,
-                        "Histopathology — routine",
-                        "Dr. Demo Pathologist");
-                }
+            if (need.Contains(demos[2]) && histo != null)
+            {
+                await AddDemoAsync(
+                    demos[2],
+                    "Sara Ali (Demo Histo)",
+                    "03001234003",
+                    26,
+                    "Female",
+                    histo,
+                    ServicePathways.Laboratory,
+                    ReportProfiles.Narrative,
+                    [("Histopathology — routine", histoHtml, null, null)],
+                    "Dr. Demo Pathologist");
+            }
 
-                if (xray != null)
-                {
-                    await AddDemoAsync(
-                        demos[3],
-                        "Usman Raza (Demo X-ray)",
-                        "03001234004",
-                        40,
-                        "Male",
-                        xray,
-                        ServicePathways.Radiology,
-                        ReportProfiles.Radiology,
-                        xrayHtml,
-                        null,
-                        null,
-                        "Chest X-ray — PA",
-                        "Dr. Demo Radiologist");
-                }
+            if (need.Contains(demos[3]) && xray != null)
+            {
+                await AddDemoAsync(
+                    demos[3],
+                    "Usman Raza (Demo X-ray)",
+                    "03001234004",
+                    40,
+                    "Male",
+                    xray,
+                    ServicePathways.Radiology,
+                    ReportProfiles.Radiology,
+                    [("Chest X-ray — PA", xrayHtml, null, null)],
+                    "Dr. Demo Radiologist");
             }
 
             // One patient, one visit, all four tests → one combined report card.
-            if (needCombined)
+            if (need.Contains(demos[4]))
             {
-                var services = new List<(Service Service, string Profile, string Result, string? Units, string? Ref, string? Param)>();
+                var services = new List<(Service Service, string Profile, List<(string? Param, string Result, string? Units, string? Ref)> Rows)>();
                 if (cbc != null)
                 {
-                    services.Add((cbc, ReportProfiles.Standard, "14.2", "g/dL", "12–16", "Hemoglobin"));
+                    services.Add((cbc, ReportProfiles.Standard, cbcParams));
                 }
                 if (semen != null)
                 {
-                    services.Add((semen, ReportProfiles.Semen, semenJson, null, null, "Semen worksheet"));
+                    services.Add((semen, ReportProfiles.Semen, [("Semen worksheet", semenJson, null, null)]));
                 }
                 if (histo != null)
                 {
-                    services.Add((histo, ReportProfiles.Narrative, histoHtml, null, null, "Histopathology — routine"));
+                    services.Add((histo, ReportProfiles.Narrative, [("Histopathology — routine", histoHtml, null, null)]));
                 }
                 if (xray != null)
                 {
-                    services.Add((xray, ReportProfiles.Radiology, xrayHtml, null, null, "Chest X-ray — PA"));
+                    services.Add((xray, ReportProfiles.Radiology, [("Chest X-ray — PA", xrayHtml, null, null)]));
                 }
 
                 if (services.Count > 0)
@@ -694,30 +707,35 @@ namespace ClinoraBE.Data
                         db.VisitService.Add(line);
                         await db.SaveChangesAsync();
 
-                        db.TestResult.Add(new TestResult
+                        foreach (var row in item.Rows)
                         {
-                            VisitServiceId = line.Id,
-                            Source = "Demo",
-                            ResultText = item.Result,
-                            Units = item.Units,
-                            ReferenceRange = item.Ref,
-                            ParameterName = item.Param,
-                            EnteredByName = "Dr. Demo",
-                            EnteredAt = now.AddMinutes(-40),
-                            Version = 1,
-                            IsCurrent = true
-                        });
-                        db.ReportLine.Add(new ReportLine
-                        {
-                            ReportId = report.Id,
-                            VisitServiceId = line.Id,
-                            ServiceName = item.Service.Name,
-                            ResultText = item.Result,
-                            Units = item.Units,
-                            ReferenceRange = item.Ref,
-                            ReportProfile = item.Profile,
-                            Urgent = false
-                        });
+                            db.TestResult.Add(new TestResult
+                            {
+                                VisitServiceId = line.Id,
+                                Source = "Demo",
+                                ResultText = row.Result,
+                                Units = row.Units,
+                                ReferenceRange = row.Ref,
+                                ParameterName = row.Param,
+                                EnteredByName = "Dr. Demo",
+                                EnteredAt = now.AddMinutes(-40),
+                                Version = 1,
+                                IsCurrent = true
+                            });
+                            db.ReportLine.Add(new ReportLine
+                            {
+                                ReportId = report.Id,
+                                VisitServiceId = line.Id,
+                                ServiceName = item.Service.Name,
+                                ParameterName = row.Param,
+                                ResultText = row.Result,
+                                Units = row.Units,
+                                ReferenceRange = row.Ref,
+                                ReportProfile = item.Profile,
+                                Urgent = false
+                            });
+                        }
+
                         await db.SaveChangesAsync();
                     }
                 }

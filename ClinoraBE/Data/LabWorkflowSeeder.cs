@@ -167,9 +167,16 @@ namespace ClinoraBE.Data
                     new SampleType { Code = "URINE", Name = "Urine" },
                     new SampleType { Code = "STOOL", Name = "Stool" },
                     new SampleType { Code = "SWAB", Name = "Swab" },
-                    new SampleType { Code = "OTHER", Name = "Other" }
+                    new SampleType { Code = "OTHER", Name = "Other" },
+                    new SampleType { Code = "SEMEN", Name = "Semen" },
+                    new SampleType { Code = "TISSUE", Name = "Tissue" }
                 );
                 await db.SaveChangesAsync();
+            }
+            else
+            {
+                await EnsureSampleTypeAsync(db, "SEMEN", "Semen");
+                await EnsureSampleTypeAsync(db, "TISSUE", "Tissue");
             }
 
             if (!await db.SampleGroup.AnyAsync())
@@ -178,9 +185,16 @@ namespace ClinoraBE.Data
                     new SampleGroup { Code = "EDTA", Name = "EDTA blood" },
                     new SampleGroup { Code = "SERUM", Name = "Serum chemistry" },
                     new SampleGroup { Code = "URINE", Name = "Urine sample" },
-                    new SampleGroup { Code = "GLUCOSE", Name = "Glucose tube" }
+                    new SampleGroup { Code = "GLUCOSE", Name = "Glucose tube" },
+                    new SampleGroup { Code = "SEMEN", Name = "Semen sample" },
+                    new SampleGroup { Code = "TISSUE", Name = "Tissue / histopathology" }
                 );
                 await db.SaveChangesAsync();
+            }
+            else
+            {
+                await EnsureSampleGroupAsync(db, "SEMEN", "Semen sample");
+                await EnsureSampleGroupAsync(db, "TISSUE", "Tissue / histopathology");
             }
 
             var colors = await db.BottleColor.AsNoTracking().ToDictionaryAsync(c => c.Code, c => c.Id);
@@ -191,9 +205,16 @@ namespace ClinoraBE.Data
                     new Container { Code = "SST", Name = "SST / gel tube", DefaultBottleColorId = colors.GetValueOrDefault("GOLD") },
                     new Container { Code = "PLAIN", Name = "Plain tube", DefaultBottleColorId = colors.GetValueOrDefault("RED") },
                     new Container { Code = "FLUORIDE", Name = "Fluoride tube", DefaultBottleColorId = colors.GetValueOrDefault("BLUE") },
-                    new Container { Code = "URINEPOT", Name = "Urine pot", DefaultBottleColorId = colors.GetValueOrDefault("CLEAR") }
+                    new Container { Code = "URINEPOT", Name = "Urine pot", DefaultBottleColorId = colors.GetValueOrDefault("CLEAR") },
+                    new Container { Code = "STERILEPOT", Name = "Sterile pot", DefaultBottleColorId = colors.GetValueOrDefault("CLEAR") },
+                    new Container { Code = "FORMALIN", Name = "Formalin pot", DefaultBottleColorId = colors.GetValueOrDefault("CLEAR") }
                 );
                 await db.SaveChangesAsync();
+            }
+            else
+            {
+                await EnsureContainerAsync(db, "STERILEPOT", "Sterile pot", colors.GetValueOrDefault("CLEAR"));
+                await EnsureContainerAsync(db, "FORMALIN", "Formalin pot", colors.GetValueOrDefault("CLEAR"));
             }
 
             if (!await db.OutsideLab.AnyAsync())
@@ -264,6 +285,39 @@ namespace ClinoraBE.Data
                 }
             }
 
+            await db.SaveChangesAsync();
+        }
+
+        private static async Task EnsureSampleTypeAsync(ClinoraContext db, string code, string name)
+        {
+            if (await db.SampleType.AnyAsync(t => t.Code == code))
+            {
+                return;
+            }
+
+            db.SampleType.Add(new SampleType { Code = code, Name = name });
+            await db.SaveChangesAsync();
+        }
+
+        private static async Task EnsureSampleGroupAsync(ClinoraContext db, string code, string name)
+        {
+            if (await db.SampleGroup.AnyAsync(g => g.Code == code))
+            {
+                return;
+            }
+
+            db.SampleGroup.Add(new SampleGroup { Code = code, Name = name });
+            await db.SaveChangesAsync();
+        }
+
+        private static async Task EnsureContainerAsync(ClinoraContext db, string code, string name, int? colorId)
+        {
+            if (await db.Container.AnyAsync(c => c.Code == code))
+            {
+                return;
+            }
+
+            db.Container.Add(new Container { Code = code, Name = name, DefaultBottleColorId = colorId });
             await db.SaveChangesAsync();
         }
     }

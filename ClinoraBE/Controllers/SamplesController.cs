@@ -10,6 +10,7 @@ namespace ClinoraBE.Controllers
     [ApiController]
     [Route("api/samples")]
     [Authorize]
+    [StationAuthorize("Phlebotomy")]
     public class SamplesController : ControllerBase
     {
         private readonly ClinoraContext _db;

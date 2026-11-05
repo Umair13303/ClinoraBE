@@ -1,5 +1,6 @@
 using System.Security.Claims;
 using ClinoraBE.Infrastructure;
+
 using ClinoraBE.Model.DAL;
 using ClinoraBE.Model.ViewModel;
 using Microsoft.AspNetCore.Authorization;
@@ -11,6 +12,7 @@ namespace ClinoraBE.Controllers
     [ApiController]
     [Route("api/outside-lab")]
     [Authorize]
+    [StationAuthorize("Lab")]
     public class OutsideLabController : ControllerBase
     {
         private readonly ClinoraContext _db;
@@ -172,6 +174,9 @@ namespace ClinoraBE.Controllers
                         .Where(r => r.VisitServiceId == line.Id && r.IsCurrent)
                         .OrderByDescending(r => r.Version)
                         .FirstOrDefaultAsync();
+                    var parameterName = string.IsNullOrWhiteSpace(incoming.ParameterName)
+                        ? null
+                        : incoming.ParameterName.Trim();
                     if (existing == null)
                     {
                         _db.TestResult.Add(new TestResult
@@ -181,6 +186,7 @@ namespace ClinoraBE.Controllers
                             ResultText = incoming.ResultText.Trim(),
                             Units = string.IsNullOrWhiteSpace(incoming.Units) ? null : incoming.Units.Trim(),
                             ReferenceRange = string.IsNullOrWhiteSpace(incoming.ReferenceRange) ? null : incoming.ReferenceRange.Trim(),
+                            ParameterName = parameterName,
                             EnteredByName = "Outside lab receive",
                             EnteredAt = DateTime.Now,
                             Version = 1,
@@ -194,6 +200,10 @@ namespace ClinoraBE.Controllers
                         existing.ReferenceRange = string.IsNullOrWhiteSpace(incoming.ReferenceRange)
                             ? existing.ReferenceRange
                             : incoming.ReferenceRange.Trim();
+                        if (parameterName != null)
+                        {
+                            existing.ParameterName = parameterName;
+                        }
                         existing.Source = "Outside";
                         existing.EnteredAt = DateTime.Now;
                     }

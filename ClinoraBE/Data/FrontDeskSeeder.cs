@@ -102,8 +102,9 @@ namespace ClinoraBE.Data
             {
                 var now = DateTime.UtcNow;
                 db.Service.AddRange(
-                    new Service { Name = "General consultation", Category = "Consultation", Fee = 1500, NormalMinutes = 30, UrgentMinutes = 15, Status = true, CreatedOn = now },
-                    new Service { Name = "Follow-up consultation", Category = "Consultation", Fee = 800, NormalMinutes = 20, UrgentMinutes = 10, Status = true, CreatedOn = now },
+                    // Phase-1: consultation pathway has no station — keep catalog rows inactive.
+                    new Service { Name = "General consultation", Category = "Consultation", Fee = 1500, NormalMinutes = 30, UrgentMinutes = 15, Status = false, CreatedOn = now },
+                    new Service { Name = "Follow-up consultation", Category = "Consultation", Fee = 800, NormalMinutes = 20, UrgentMinutes = 10, Status = false, CreatedOn = now },
                     new Service { Name = "LFT", Category = "Laboratory", Fee = 2200, NormalMinutes = 240, UrgentMinutes = 120, Status = true, CreatedOn = now },
                     new Service { Name = "RFT", Category = "Laboratory", Fee = 1800, NormalMinutes = 240, UrgentMinutes = 120, Status = true, CreatedOn = now },
                     new Service { Name = "CBC", Category = "Laboratory", Fee = 800, NormalMinutes = 60, UrgentMinutes = 30, Status = true, CreatedOn = now },
@@ -134,6 +135,7 @@ namespace ClinoraBE.Data
             await db.SaveChangesAsync();
 
             await db.Database.ExecuteSqlRawAsync("""
+                UPDATE dbo.Service SET Status = 0 WHERE Category = N'Consultation' AND Status = 1;
                 UPDATE dbo.Service SET NormalMinutes = 30, UrgentMinutes = 15 WHERE Name = N'General consultation' AND NormalMinutes = 60 AND UrgentMinutes = 30;
                 UPDATE dbo.Service SET NormalMinutes = 20, UrgentMinutes = 10 WHERE Name = N'Follow-up consultation' AND NormalMinutes = 60 AND UrgentMinutes = 30;
                 UPDATE dbo.Service SET NormalMinutes = 240, UrgentMinutes = 120 WHERE Name IN (N'LFT', N'RFT', N'Thyroid profile') AND NormalMinutes = 60 AND UrgentMinutes = 30;

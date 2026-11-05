@@ -130,6 +130,16 @@ namespace ClinoraBE.Model.ViewModel
         public List<string> Tests { get; set; } = [];
     }
 
+    public class ExistingResultDto
+    {
+        public string? ParameterName { get; set; }
+        public string? ResultText { get; set; }
+        public string? Units { get; set; }
+        public string? ReferenceRange { get; set; }
+        public bool IsAbnormal { get; set; }
+        public bool IsCritical { get; set; }
+    }
+
     public class ResultWorkItemDto
     {
         public int VisitServiceId { get; set; }
@@ -147,6 +157,7 @@ namespace ClinoraBE.Model.ViewModel
         public string? ExistingUnits { get; set; }
         public string? ExistingReferenceRange { get; set; }
         public string? ExistingParameterName { get; set; }
+        public List<ExistingResultDto> ExistingResults { get; set; } = [];
         public bool IsAbnormal { get; set; }
         public bool IsCritical { get; set; }
     }
@@ -193,6 +204,7 @@ namespace ClinoraBE.Model.ViewModel
     public class ReportLineDto
     {
         public string ServiceName { get; set; } = string.Empty;
+        public string? ParameterName { get; set; }
         public string? ResultText { get; set; }
         public string? Units { get; set; }
         public string? ReferenceRange { get; set; }
@@ -295,6 +307,7 @@ namespace ClinoraBE.Model.ViewModel
         public string ResultText { get; set; } = string.Empty;
         public string? Units { get; set; }
         public string? ReferenceRange { get; set; }
+        public string? ParameterName { get; set; }
     }
 
     public class VisitSlipsDto

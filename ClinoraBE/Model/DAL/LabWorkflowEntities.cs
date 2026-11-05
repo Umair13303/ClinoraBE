@@ -122,6 +122,7 @@ namespace ClinoraBE.Model.DAL
         public int ReportId { get; set; }
         public int VisitServiceId { get; set; }
         public string ServiceName { get; set; } = string.Empty;
+        public string? ParameterName { get; set; }
         public string? ResultText { get; set; }
         public string? Units { get; set; }
         public string? ReferenceRange { get; set; }

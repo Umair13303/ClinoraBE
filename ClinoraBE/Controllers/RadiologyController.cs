@@ -1,4 +1,5 @@
 using ClinoraBE.Infrastructure;
+
 using ClinoraBE.Model.DAL;
 using ClinoraBE.Model.ViewModel;
 using Microsoft.AspNetCore.Authorization;
@@ -10,6 +11,7 @@ namespace ClinoraBE.Controllers
     [ApiController]
     [Route("api/radiology")]
     [Authorize]
+    [StationAuthorize("Radiology")]
     public class RadiologyController : ControllerBase
     {
         private readonly ClinoraContext _db;
@@ -179,6 +181,7 @@ namespace ClinoraBE.Controllers
                 ReportId = report.Id,
                 VisitServiceId = line.Id,
                 ServiceName = service.Name,
+                ParameterName = tr?.ParameterName,
                 ResultText = tr?.ResultText,
                 Units = tr?.Units,
                 ReferenceRange = tr?.ReferenceRange,
@@ -210,6 +213,7 @@ namespace ClinoraBE.Controllers
                     new ReportLineDto
                     {
                         ServiceName = service.Name,
+                        ParameterName = tr?.ParameterName,
                         ResultText = tr?.ResultText,
                         Units = tr?.Units,
                         ReferenceRange = tr?.ReferenceRange,

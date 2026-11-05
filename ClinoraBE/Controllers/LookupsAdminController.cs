@@ -1,3 +1,4 @@
+using ClinoraBE.Infrastructure;
 using ClinoraBE.Model.DAL;
 using ClinoraBE.Model.ViewModel;
 using Microsoft.AspNetCore.Authorization;
@@ -9,6 +10,7 @@ namespace ClinoraBE.Controllers
     [ApiController]
     [Route("api/admin/lookups")]
     [Authorize]
+    [StationAuthorize("Admin")]
     public class LookupsAdminController : ControllerBase
     {
         private readonly ClinoraContext _db;

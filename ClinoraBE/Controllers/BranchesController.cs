@@ -1,3 +1,4 @@
+using ClinoraBE.Infrastructure;
 using ClinoraBE.Model.DAL;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -8,6 +9,7 @@ namespace ClinoraBE.Controllers
     [ApiController]
     [Route("api/branches")]
     [Authorize]
+    [StationAuthorize("Admin")]
     public class BranchesController : ControllerBase
     {
         private readonly ClinoraContext _db;

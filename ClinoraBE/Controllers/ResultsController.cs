@@ -1,4 +1,5 @@
 using ClinoraBE.Infrastructure;
+
 using ClinoraBE.Model.DAL;
 using ClinoraBE.Model.ViewModel;
 using Microsoft.AspNetCore.Authorization;
@@ -10,6 +11,7 @@ namespace ClinoraBE.Controllers
     [ApiController]
     [Route("api/results")]
     [Authorize]
+    [StationAuthorize("Lab")]
     public class ResultsController : ControllerBase
     {
         private readonly ClinoraContext _db;
@@ -74,10 +76,16 @@ namespace ClinoraBE.Controllers
                 return BadRequest(new { message = "This test is not ready for result entry." });
             }
 
-            var current = await _db.TestResult
+            var parameterName = string.IsNullOrWhiteSpace(request.ParameterName)
+                ? null
+                : request.ParameterName.Trim();
+
+            var currents = await _db.TestResult
                 .Where(r => r.VisitServiceId == line.Id && r.IsCurrent)
                 .OrderByDescending(r => r.Version)
-                .FirstOrDefaultAsync();
+                .ToListAsync();
+
+            var current = FindCurrentForParameter(currents, parameterName);
 
             var units = !string.IsNullOrWhiteSpace(request.Units)
                 ? request.Units.Trim()
@@ -85,9 +93,12 @@ namespace ClinoraBE.Controllers
             var reference = !string.IsNullOrWhiteSpace(request.ReferenceRange)
                 ? request.ReferenceRange.Trim()
                 : current?.ReferenceRange;
-            var parameterName = !string.IsNullOrWhiteSpace(request.ParameterName)
-                ? request.ParameterName.Trim()
-                : current?.ParameterName;
+
+            // When switching a lone unnamed blob onto a named parameter, keep editing that row.
+            if (current != null && parameterName != null && string.IsNullOrWhiteSpace(current.ParameterName))
+            {
+                current.ParameterName = parameterName;
+            }
 
             var (abnormal, critical) = EvaluateFlags(request.ResultText, request.RefLow, request.RefHigh, request.IsCritical);
 
@@ -123,11 +134,16 @@ namespace ClinoraBE.Controllers
                 current.EnteredAt = DateTime.Now;
                 current.IsAbnormal = abnormal;
                 current.IsCritical = critical;
-                current.ParameterName = parameterName;
+                current.ParameterName = parameterName ?? current.ParameterName;
             }
 
-            line.IsAbnormal = abnormal;
-            line.IsCritical = critical;
+            await _db.SaveChangesAsync();
+
+            var allCurrent = await _db.TestResult
+                .Where(r => r.VisitServiceId == line.Id && r.IsCurrent)
+                .ToListAsync();
+            line.IsAbnormal = allCurrent.Any(r => r.IsAbnormal);
+            line.IsCritical = allCurrent.Any(r => r.IsCritical);
             line.Status = VisitServiceStatuses.ResultEntered;
             line.ResultEnteredAt = DateTime.Now;
             if (amending)
@@ -143,6 +159,19 @@ namespace ClinoraBE.Controllers
                 isAbnormal = abnormal,
                 isCritical = critical
             });
+        }
+
+        private static TestResult? FindCurrentForParameter(List<TestResult> currents, string? parameterName)
+        {
+            if (parameterName != null)
+            {
+                return currents.FirstOrDefault(r =>
+                           string.Equals(r.ParameterName, parameterName, StringComparison.OrdinalIgnoreCase))
+                       ?? currents.FirstOrDefault(r => string.IsNullOrWhiteSpace(r.ParameterName) && currents.Count == 1);
+            }
+
+            return currents.FirstOrDefault(r => string.IsNullOrWhiteSpace(r.ParameterName))
+                   ?? (currents.Count == 1 ? currents[0] : null);
         }
 
         private static (bool Abnormal, bool Critical) EvaluateFlags(string text, decimal? low, decimal? high, bool forceCritical)

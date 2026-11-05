@@ -20,6 +20,7 @@ namespace ClinoraBE.Controllers
         }
 
         [HttpGet("collection")]
+        [StationAuthorize("Phlebotomy")]
         public async Task<ActionResult<List<CollectionGroupDto>>> Collection([FromQuery] int? visitId)
         {
             var branchId = BranchContext.ResolveBranchId(Request, User);
@@ -99,6 +100,7 @@ namespace ClinoraBE.Controllers
         }
 
         [HttpGet("results")]
+        [StationAuthorize("Lab")]
         public async Task<ActionResult<List<ResultWorkItemDto>>> Results()
         {
             var branchId = BranchContext.ResolveBranchId(Request, User);
@@ -111,8 +113,6 @@ namespace ClinoraBE.Controllers
                 join s in _db.Service.AsNoTracking() on vs.ServiceId equals s.Id
                 join sample in _db.LabSample.AsNoTracking() on vs.SampleId equals sample.Id into sj
                 from sample in sj.DefaultIfEmpty()
-                join tr in _db.TestResult.AsNoTracking().Where(r => r.IsCurrent) on vs.Id equals tr.VisitServiceId into trj
-                from tr in trj.DefaultIfEmpty()
                 where (vs.Status == VisitServiceStatuses.InLab || vs.Status == VisitServiceStatuses.ResultEntered)
                       && visitIds.Contains(v.Id)
                       && v.VisitStatus == VisitStatuses.Active
@@ -130,19 +130,17 @@ namespace ClinoraBE.Controllers
                     Urgent = vs.Urgent,
                     Barcode = sample != null ? sample.Barcode : null,
                     IsSendOut = vs.IsSendOut,
-                    ExistingResultText = tr != null ? tr.ResultText : null,
-                    ExistingUnits = tr != null ? tr.Units : null,
-                    ExistingReferenceRange = tr != null ? tr.ReferenceRange : null,
-                    ExistingParameterName = tr != null ? tr.ParameterName : null,
                     IsAbnormal = vs.IsAbnormal,
                     IsCritical = vs.IsCritical
                 }
             ).Take(100).ToListAsync();
 
+            await AttachExistingResultsAsync(items);
             return Ok(items);
         }
 
         [HttpGet("finalize")]
+        [StationAuthorize("Doctor")]
         public async Task<ActionResult<List<ResultWorkItemDto>>> FinalizeQueue()
         {
             var branchId = BranchContext.ResolveBranchId(Request, User);
@@ -153,8 +151,6 @@ namespace ClinoraBE.Controllers
                 join v in _db.Visit.AsNoTracking() on vs.VisitId equals v.Id
                 join p in _db.Patient.AsNoTracking() on v.PatientId equals p.Id
                 join s in _db.Service.AsNoTracking() on vs.ServiceId equals s.Id
-                join tr in _db.TestResult.AsNoTracking().Where(r => r.IsCurrent) on vs.Id equals tr.VisitServiceId into trj
-                from tr in trj.DefaultIfEmpty()
                 where (vs.Status == VisitServiceStatuses.ResultEntered
                       || vs.Status == VisitServiceStatuses.Imaged
                       || vs.Status == VisitServiceStatuses.Finalized)
@@ -173,16 +169,52 @@ namespace ClinoraBE.Controllers
                     ReportProfile = string.IsNullOrWhiteSpace(s.ReportProfile) ? ReportProfiles.Standard : s.ReportProfile,
                     Urgent = vs.Urgent,
                     IsSendOut = vs.IsSendOut,
-                    ExistingResultText = tr != null ? tr.ResultText : null,
-                    ExistingUnits = tr != null ? tr.Units : null,
-                    ExistingReferenceRange = tr != null ? tr.ReferenceRange : null,
-                    ExistingParameterName = tr != null ? tr.ParameterName : null,
                     IsAbnormal = vs.IsAbnormal,
                     IsCritical = vs.IsCritical
                 }
             ).Take(150).ToListAsync();
 
+            await AttachExistingResultsAsync(items);
             return Ok(items);
+        }
+
+        private async Task AttachExistingResultsAsync(List<ResultWorkItemDto> items)
+        {
+            if (items.Count == 0)
+            {
+                return;
+            }
+
+            var vsIds = items.Select(i => i.VisitServiceId).ToList();
+            var results = await _db.TestResult.AsNoTracking()
+                .Where(r => vsIds.Contains(r.VisitServiceId) && r.IsCurrent)
+                .OrderBy(r => r.Id)
+                .ToListAsync();
+            var byVs = results.GroupBy(r => r.VisitServiceId).ToDictionary(g => g.Key, g => g.ToList());
+
+            foreach (var item in items)
+            {
+                if (!byVs.TryGetValue(item.VisitServiceId, out var list) || list.Count == 0)
+                {
+                    continue;
+                }
+
+                item.ExistingResults = list.Select(r => new ExistingResultDto
+                {
+                    ParameterName = r.ParameterName,
+                    ResultText = r.ResultText,
+                    Units = r.Units,
+                    ReferenceRange = r.ReferenceRange,
+                    IsAbnormal = r.IsAbnormal,
+                    IsCritical = r.IsCritical
+                }).ToList();
+
+                var primary = list[0];
+                item.ExistingResultText = primary.ResultText;
+                item.ExistingUnits = primary.Units;
+                item.ExistingReferenceRange = primary.ReferenceRange;
+                item.ExistingParameterName = primary.ParameterName;
+            }
         }
 
         [HttpGet("summary")]
@@ -223,6 +255,7 @@ namespace ClinoraBE.Controllers
         }
 
         [HttpGet("radiology")]
+        [StationAuthorize("Radiology")]
         public async Task<ActionResult<List<RadiologyWorkItemDto>>> Radiology()
         {
             var branchId = BranchContext.ResolveBranchId(Request, User);

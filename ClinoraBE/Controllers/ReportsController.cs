@@ -10,6 +10,7 @@ namespace ClinoraBE.Controllers
     [ApiController]
     [Route("api/reports")]
     [Authorize]
+    [StationAuthorize("FrontDesk", "Doctor", "Radiology")]
     public class ReportsController : ControllerBase
     {
         private readonly ClinoraContext _db;
@@ -20,6 +21,7 @@ namespace ClinoraBE.Controllers
         }
 
         [HttpPost("finalize")]
+        [StationAuthorize("Doctor")]
         public async Task<ActionResult<ReportDto>> Finalize([FromBody] FinalizeRequest request)
         {
             if (request.VisitServiceIds == null || request.VisitServiceIds.Count == 0)
@@ -42,9 +44,21 @@ namespace ClinoraBE.Controllers
                 return BadRequest(new { message = "One or more lines were not found on this visit." });
             }
 
-            if (lines.Any(l => l.Status is not (VisitServiceStatuses.ResultEntered or VisitServiceStatuses.Imaged)))
+            // Skip visit-services already on a report (e.g. radiologist-signed) so doctor finalize cannot double-report.
+            var requestedIds = lines.Select(l => l.Id).ToList();
+            var alreadyReportedIds = await _db.ReportLine.AsNoTracking()
+                .Where(rl => requestedIds.Contains(rl.VisitServiceId))
+                .Select(rl => rl.VisitServiceId)
+                .Distinct()
+                .ToListAsync();
+            lines = lines
+                .Where(l => !alreadyReportedIds.Contains(l.Id)
+                            && l.Status is VisitServiceStatuses.ResultEntered or VisitServiceStatuses.Imaged)
+                .ToList();
+
+            if (lines.Count == 0)
             {
-                return BadRequest(new { message = "Only result-entered or imaged tests can be finalized." });
+                return BadRequest(new { message = "Nothing left to finalize — selected tests are already reported or not ready." });
             }
 
             var byName = string.IsNullOrWhiteSpace(request.FinalizedByName) ? "Doctor" : request.FinalizedByName.Trim();
@@ -81,27 +95,52 @@ namespace ClinoraBE.Controllers
             var lineIds = lines.Select(l => l.Id).ToList();
             var results = await _db.TestResult.AsNoTracking()
                 .Where(r => lineIds.Contains(r.VisitServiceId) && r.IsCurrent)
-                .ToDictionaryAsync(r => r.VisitServiceId);
+                .OrderBy(r => r.Id)
+                .ToListAsync();
+            var resultsByVs = results.GroupBy(r => r.VisitServiceId).ToDictionary(g => g.Key, g => g.ToList());
 
             foreach (var line in lines)
             {
-                results.TryGetValue(line.Id, out var tr);
                 services.TryGetValue(line.ServiceId, out var service);
-                _db.ReportLine.Add(new ReportLine
+                var profile = string.IsNullOrWhiteSpace(service?.ReportProfile)
+                    ? ReportProfiles.Standard
+                    : service!.ReportProfile;
+                var serviceName = service?.Name ?? ("Service " + line.ServiceId);
+                resultsByVs.TryGetValue(line.Id, out var lineResults);
+                lineResults ??= [];
+
+                if (lineResults.Count == 0)
                 {
-                    ReportId = report.Id,
-                    VisitServiceId = line.Id,
-                    ServiceName = service?.Name ?? ("Service " + line.ServiceId),
-                    ResultText = tr?.ResultText,
-                    Units = tr?.Units,
-                    ReferenceRange = tr?.ReferenceRange,
-                    ReportProfile = string.IsNullOrWhiteSpace(service?.ReportProfile)
-                        ? ReportProfiles.Standard
-                        : service!.ReportProfile,
-                    Urgent = line.Urgent,
-                    IsAbnormal = line.IsAbnormal,
-                    IsCritical = line.IsCritical
-                });
+                    _db.ReportLine.Add(new ReportLine
+                    {
+                        ReportId = report.Id,
+                        VisitServiceId = line.Id,
+                        ServiceName = serviceName,
+                        ReportProfile = profile,
+                        Urgent = line.Urgent,
+                        IsAbnormal = line.IsAbnormal,
+                        IsCritical = line.IsCritical
+                    });
+                    continue;
+                }
+
+                foreach (var tr in lineResults)
+                {
+                    _db.ReportLine.Add(new ReportLine
+                    {
+                        ReportId = report.Id,
+                        VisitServiceId = line.Id,
+                        ServiceName = serviceName,
+                        ParameterName = tr.ParameterName,
+                        ResultText = tr.ResultText,
+                        Units = tr.Units,
+                        ReferenceRange = tr.ReferenceRange,
+                        ReportProfile = profile,
+                        Urgent = line.Urgent,
+                        IsAbnormal = tr.IsAbnormal,
+                        IsCritical = tr.IsCritical
+                    });
+                }
             }
 
             await _db.SaveChangesAsync();
@@ -253,6 +292,7 @@ namespace ClinoraBE.Controllers
                 .Select(l => new ReportLineDto
                 {
                     ServiceName = l.ServiceName,
+                    ParameterName = l.ParameterName,
                     ResultText = l.ResultText,
                     Units = l.Units,
                     ReferenceRange = l.ReferenceRange,
@@ -269,21 +309,22 @@ namespace ClinoraBE.Controllers
                 snap = await (
                     from vs in _db.VisitService.AsNoTracking()
                     join s in _db.Service.AsNoTracking() on vs.ServiceId equals s.Id
-                    join tr in _db.TestResult.AsNoTracking().Where(r => r.IsCurrent) on vs.Id equals tr.VisitServiceId into trj
-                    from tr in trj.DefaultIfEmpty()
+                    join tr in _db.TestResult.AsNoTracking().Where(r => r.IsCurrent) on vs.Id equals tr.VisitServiceId
                     where vs.VisitId == visit.Id
                           && vs.Status == VisitServiceStatuses.Finalized
                           && vs.FinalizedAt == report.FinalizedAt
+                    orderby tr.Id
                     select new ReportLineDto
                     {
                         ServiceName = s.Name,
-                        ResultText = tr != null ? tr.ResultText : null,
-                        Units = tr != null ? tr.Units : null,
-                        ReferenceRange = tr != null ? tr.ReferenceRange : null,
+                        ParameterName = tr.ParameterName,
+                        ResultText = tr.ResultText,
+                        Units = tr.Units,
+                        ReferenceRange = tr.ReferenceRange,
                         ReportProfile = string.IsNullOrWhiteSpace(s.ReportProfile) ? ReportProfiles.Standard : s.ReportProfile,
                         Urgent = vs.Urgent,
-                        IsAbnormal = vs.IsAbnormal,
-                        IsCritical = vs.IsCritical
+                        IsAbnormal = tr.IsAbnormal,
+                        IsCritical = tr.IsCritical
                     }
                 ).ToListAsync();
             }
