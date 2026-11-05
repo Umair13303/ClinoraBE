@@ -10,7 +10,7 @@ namespace ClinoraBE.Controllers
     [ApiController]
     [Route("api/samples")]
     [Authorize]
-    [StationAuthorize("Phlebotomy")]
+    [StationAuthorize("Phlebotomy", "Lab")]
     public class SamplesController : ControllerBase
     {
         private readonly ClinoraContext _db;
@@ -21,6 +21,7 @@ namespace ClinoraBE.Controllers
         }
 
         [HttpPost("collect")]
+        [StationAuthorize("Phlebotomy")]
         public async Task<ActionResult<SampleBarcodeDto>> Collect([FromBody] CollectSampleRequest request)
         {
             if (request.VisitServiceIds == null || request.VisitServiceIds.Count == 0)
@@ -87,7 +88,8 @@ namespace ClinoraBE.Controllers
                 line.SampleId = sample.Id;
                 line.IsSendOut = request.IsSendOut;
                 line.OutsideLabId = request.IsSendOut ? request.OutsideLabId : null;
-                line.Status = request.IsSendOut ? VisitServiceStatuses.SentOut : VisitServiceStatuses.InLab;
+                // In-house stays Collected until Lab Receiving; send-out bypasses receiving.
+                line.Status = request.IsSendOut ? VisitServiceStatuses.SentOut : VisitServiceStatuses.Collected;
                 _db.SampleTest.Add(new SampleTest { SampleId = sample.Id, VisitServiceId = line.Id });
             }
 
@@ -95,7 +97,84 @@ namespace ClinoraBE.Controllers
             return Ok(await BuildBarcodeDto(sample.Id));
         }
 
+        [HttpGet("by-barcode")]
+        [StationAuthorize("Lab")]
+        public async Task<ActionResult<SampleBarcodeDto>> ByBarcode([FromQuery] string code)
+        {
+            if (string.IsNullOrWhiteSpace(code))
+            {
+                return BadRequest(new { message = "Enter a barcode." });
+            }
+
+            var barcode = code.Trim();
+            var row = await (
+                from s in _db.LabSample.AsNoTracking()
+                join v in _db.Visit.AsNoTracking() on s.VisitId equals v.Id
+                where s.Barcode == barcode
+                select new { s.Id, v.BranchId }
+            ).FirstOrDefaultAsync();
+
+            if (row == null)
+            {
+                return NotFound(new { message = "Barcode not found." });
+            }
+
+            var branchId = BranchContext.ResolveBranchId(Request, User);
+            if (!BranchContext.Matches(row.BranchId, branchId))
+            {
+                return NotFound(new { message = "Sample not found for this branch." });
+            }
+
+            var dto = await BuildBarcodeDto(row.Id);
+            return dto == null
+                ? NotFound(new { message = "Sample not found." })
+                : Ok(dto);
+        }
+
+        [HttpPost("{id:int}/receive")]
+        [StationAuthorize("Lab")]
+        public async Task<ActionResult<SampleBarcodeDto>> Receive(int id, [FromBody] ReceiveSampleRequest? request)
+        {
+            var result = await ReceiveSampleAsync(id, request?.ReceivedBy);
+            if (result.Error != null)
+            {
+                return result.Error;
+            }
+
+            return Ok(result.Dto);
+        }
+
+        [HttpPost("receive-by-barcode")]
+        [StationAuthorize("Lab")]
+        public async Task<ActionResult<SampleBarcodeDto>> ReceiveByBarcode([FromBody] ReceiveByBarcodeRequest request)
+        {
+            if (string.IsNullOrWhiteSpace(request.Barcode))
+            {
+                return BadRequest(new { message = "Enter a barcode." });
+            }
+
+            var barcode = request.Barcode.Trim();
+            var sampleId = await _db.LabSample
+                .Where(s => s.Barcode == barcode)
+                .Select(s => (int?)s.Id)
+                .FirstOrDefaultAsync();
+
+            if (sampleId == null)
+            {
+                return NotFound(new { message = "Barcode not found." });
+            }
+
+            var result = await ReceiveSampleAsync(sampleId.Value, request.ReceivedBy);
+            if (result.Error != null)
+            {
+                return result.Error;
+            }
+
+            return Ok(result.Dto);
+        }
+
         [HttpPost("{id:int}/reject")]
+        [StationAuthorize("Phlebotomy")]
         public async Task<ActionResult> Reject(int id, [FromBody] RejectSampleRequest request)
         {
             if (string.IsNullOrWhiteSpace(request.Reason))
@@ -129,12 +208,16 @@ namespace ClinoraBE.Controllers
             var links = await _db.SampleTest.Where(st => st.SampleId == id).ToListAsync();
             var lineIds = links.Select(l => l.VisitServiceId).ToList();
             var lines = await _db.VisitService.Where(vs => lineIds.Contains(vs.Id)).ToListAsync();
-            if (lines.Any(l => l.Status is VisitServiceStatuses.Finalized or VisitServiceStatuses.ResultEntered or VisitServiceStatuses.SentOut))
+            if (lines.Any(l => l.Status is VisitServiceStatuses.Finalized
+                    or VisitServiceStatuses.ResultEntered
+                    or VisitServiceStatuses.SentOut))
             {
                 return BadRequest(new { message = "Cannot reject after result entry, send-out, or finalize." });
             }
 
             sample.SampleStatus = "Rejected";
+            sample.ReceivedAt = null;
+            sample.ReceivedBy = null;
             sample.RejectReason = request.Reason.Trim();
             sample.RejectedAt = DateTime.Now;
             sample.RejectedByName = string.IsNullOrWhiteSpace(request.RejectedByName) ? null : request.RejectedByName.Trim();
@@ -258,6 +341,76 @@ namespace ClinoraBE.Controllers
             return Ok(result);
         }
 
+        private async Task<(SampleBarcodeDto? Dto, ActionResult? Error)> ReceiveSampleAsync(int sampleId, string? receivedBy)
+        {
+            var sample = await _db.LabSample.FirstOrDefaultAsync(s => s.Id == sampleId);
+            if (sample == null)
+            {
+                return (null, NotFound(new { message = "Sample not found." }));
+            }
+
+            var visit = await _db.Visit.AsNoTracking().FirstOrDefaultAsync(v => v.Id == sample.VisitId);
+            var branchId = BranchContext.ResolveBranchId(Request, User);
+            if (visit == null || !BranchContext.Matches(visit.BranchId, branchId))
+            {
+                return (null, NotFound(new { message = "Sample not found for this branch." }));
+            }
+
+            if (visit.VisitStatus == VisitStatuses.Cancelled)
+            {
+                return (null, BadRequest(new { message = "Cannot receive samples for a cancelled visit." }));
+            }
+
+            if (sample.IsSendOut)
+            {
+                return (null, BadRequest(new { message = "Send-out samples are received via the outside-lab station." }));
+            }
+
+            if (sample.SampleStatus == "Rejected")
+            {
+                return (null, BadRequest(new { message = "Rejected samples cannot be received." }));
+            }
+
+            if (sample.SampleStatus == "Received" || sample.ReceivedAt != null)
+            {
+                return (null, BadRequest(new { message = "Sample already received into lab." }));
+            }
+
+            if (sample.SampleStatus != "Collected")
+            {
+                return (null, BadRequest(new { message = $"Sample status '{sample.SampleStatus}' cannot be received." }));
+            }
+
+            var lines = await _db.VisitService.Where(vs => vs.SampleId == sample.Id).ToListAsync();
+            if (lines.Count == 0)
+            {
+                return (null, BadRequest(new { message = "Sample has no linked tests." }));
+            }
+
+            if (lines.Any(l => l.IsSendOut || l.Status == VisitServiceStatuses.SentOut))
+            {
+                return (null, BadRequest(new { message = "Send-out samples are received via the outside-lab station." }));
+            }
+
+            if (lines.Any(l => l.Status != VisitServiceStatuses.Collected))
+            {
+                return (null, BadRequest(new { message = "Only collected in-house samples can be received." }));
+            }
+
+            var staff = string.IsNullOrWhiteSpace(receivedBy) ? null : receivedBy.Trim();
+            sample.ReceivedAt = DateTime.Now;
+            sample.ReceivedBy = staff;
+            sample.SampleStatus = "Received";
+
+            foreach (var line in lines)
+            {
+                line.Status = VisitServiceStatuses.InLab;
+            }
+
+            await _db.SaveChangesAsync();
+            return (await BuildBarcodeDto(sample.Id), null);
+        }
+
         private async Task<SampleBarcodeDto?> BuildBarcodeDto(int sampleId)
         {
             var row = await (
@@ -310,7 +463,10 @@ namespace ClinoraBE.Controllers
                 SampleGroupName = row.SampleGroupName,
                 IsSendOut = row.Sample.IsSendOut,
                 OutsideLabName = row.OutsideLabName,
+                SampleStatus = row.Sample.SampleStatus,
                 CollectedAt = row.Sample.CollectedAt,
+                ReceivedAt = row.Sample.ReceivedAt,
+                ReceivedBy = row.Sample.ReceivedBy,
                 Tests = tests
             };
         }

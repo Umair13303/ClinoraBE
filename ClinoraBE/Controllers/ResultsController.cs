@@ -11,7 +11,7 @@ namespace ClinoraBE.Controllers
     [ApiController]
     [Route("api/results")]
     [Authorize]
-    [StationAuthorize("Lab")]
+    [StationAuthorize("Lab", "Doctor")]
     public class ResultsController : ControllerBase
     {
         private readonly ClinoraContext _db;
@@ -150,6 +150,7 @@ namespace ClinoraBE.Controllers
             {
                 line.FinalizedAt = null;
                 line.FinalizedByName = null;
+                await SupersedeReportLinesForVisitServiceAsync(line.Id);
             }
 
             await _db.SaveChangesAsync();
@@ -159,6 +160,38 @@ namespace ClinoraBE.Controllers
                 isAbnormal = abnormal,
                 isCritical = critical
             });
+        }
+
+        /// <summary>
+        /// Remove report snapshot rows for this visit-service so doctor can re-finalize a fresh report.
+        /// Orphan reports with no remaining lines are deleted.
+        /// </summary>
+        private async Task SupersedeReportLinesForVisitServiceAsync(int visitServiceId)
+        {
+            var reportLines = await _db.ReportLine
+                .Where(rl => rl.VisitServiceId == visitServiceId)
+                .ToListAsync();
+            if (reportLines.Count == 0)
+            {
+                return;
+            }
+
+            var reportIds = reportLines.Select(rl => rl.ReportId).Distinct().ToList();
+            _db.ReportLine.RemoveRange(reportLines);
+            await _db.SaveChangesAsync();
+
+            foreach (var reportId in reportIds)
+            {
+                var remaining = await _db.ReportLine.CountAsync(rl => rl.ReportId == reportId);
+                if (remaining == 0)
+                {
+                    var report = await _db.Report.FirstOrDefaultAsync(r => r.Id == reportId);
+                    if (report != null)
+                    {
+                        _db.Report.Remove(report);
+                    }
+                }
+            }
         }
 
         private static TestResult? FindCurrentForParameter(List<TestResult> currents, string? parameterName)

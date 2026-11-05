@@ -44,21 +44,31 @@ namespace ClinoraBE.Controllers
                 return BadRequest(new { message = "One or more lines were not found on this visit." });
             }
 
-            // Skip visit-services already on a report (e.g. radiologist-signed) so doctor finalize cannot double-report.
+            // Skip VS that still have live report lines (radiologist-signed / not yet amended).
+            // Amend deletes ReportLines so lab ResultEntered becomes eligible again.
             var requestedIds = lines.Select(l => l.Id).ToList();
             var alreadyReportedIds = await _db.ReportLine.AsNoTracking()
                 .Where(rl => requestedIds.Contains(rl.VisitServiceId))
                 .Select(rl => rl.VisitServiceId)
                 .Distinct()
                 .ToListAsync();
+            var serviceIds = lines.Select(l => l.ServiceId).Distinct().ToList();
+            var services = await _db.Service.AsNoTracking()
+                .Where(s => serviceIds.Contains(s.Id))
+                .ToDictionaryAsync(s => s.Id);
+
+            // Doctor finalize is lab-only; radiology stays on radiologist sign.
             lines = lines
-                .Where(l => !alreadyReportedIds.Contains(l.Id)
-                            && l.Status is VisitServiceStatuses.ResultEntered or VisitServiceStatuses.Imaged)
+                .Where(l =>
+                    l.Status == VisitServiceStatuses.ResultEntered
+                    && !alreadyReportedIds.Contains(l.Id)
+                    && services.TryGetValue(l.ServiceId, out var svc)
+                    && svc.Pathway != ServicePathways.Radiology)
                 .ToList();
 
             if (lines.Count == 0)
             {
-                return BadRequest(new { message = "Nothing left to finalize — selected tests are already reported or not ready." });
+                return BadRequest(new { message = "Nothing left to finalize — selected tests are already reported, radiology, or not ready." });
             }
 
             var byName = string.IsNullOrWhiteSpace(request.FinalizedByName) ? "Doctor" : request.FinalizedByName.Trim();
@@ -70,16 +80,13 @@ namespace ClinoraBE.Controllers
                 line.FinalizedByName = byName;
             }
 
-            var serviceIds = lines.Select(l => l.ServiceId).Distinct().ToList();
-            var services = await _db.Service.AsNoTracking()
-                .Where(s => serviceIds.Contains(s.Id))
-                .ToDictionaryAsync(s => s.Id);
-            var pathways = services.Values.Select(s => s.Pathway).Distinct().ToList();
+            var pathways = lines
+                .Select(l => services.TryGetValue(l.ServiceId, out var svc) ? svc.Pathway : ServicePathways.Laboratory)
+                .Distinct()
+                .ToList();
             var pathway = pathways.Count == 1
                 ? pathways[0]
-                : pathways.Contains(ServicePathways.Radiology) && pathways.Contains(ServicePathways.Laboratory)
-                    ? "Mixed"
-                    : (string.IsNullOrWhiteSpace(request.Pathway) ? ServicePathways.Laboratory : request.Pathway.Trim());
+                : (string.IsNullOrWhiteSpace(request.Pathway) ? ServicePathways.Laboratory : request.Pathway.Trim());
 
             var report = new Report
             {
@@ -154,6 +161,12 @@ namespace ClinoraBE.Controllers
             if (dto == null)
             {
                 return NotFound(new { message = "Report not found." });
+            }
+
+            var branchId = BranchContext.ResolveBranchId(Request, User);
+            if (!await BranchContext.VisitAllowedAsync(_db, dto.VisitId, branchId))
+            {
+                return NotFound(new { message = "Report not found for this branch." });
             }
 
             return Ok(dto);

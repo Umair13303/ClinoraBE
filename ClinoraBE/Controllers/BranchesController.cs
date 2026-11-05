@@ -9,7 +9,6 @@ namespace ClinoraBE.Controllers
     [ApiController]
     [Route("api/branches")]
     [Authorize]
-    [StationAuthorize("Admin")]
     public class BranchesController : ControllerBase
     {
         private readonly ClinoraContext _db;
@@ -19,6 +18,7 @@ namespace ClinoraBE.Controllers
             _db = db;
         }
 
+        /// <summary>Any authenticated user may list branches for the shell switcher.</summary>
         [HttpGet]
         public async Task<ActionResult<List<BranchDto>>> Get()
         {

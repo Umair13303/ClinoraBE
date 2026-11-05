@@ -161,37 +161,57 @@ namespace ClinoraBE.Controllers
             }
 
             var items = await _db.OutsideLabShipmentItem.Where(i => i.ShipmentId == id).ToListAsync();
-            var resultsByVs = (request.Items ?? []).ToDictionary(i => i.VisitServiceId);
+            var incomingList = (request.Items ?? [])
+                .Where(i => !string.IsNullOrWhiteSpace(i.ResultText))
+                .ToList();
             var withResults = 0;
+            var touchedVs = new HashSet<int>();
 
             foreach (var item in items)
             {
                 var line = await _db.VisitService.FirstAsync(vs => vs.Id == item.VisitServiceId);
-                if (resultsByVs.TryGetValue(item.VisitServiceId, out var incoming) && !string.IsNullOrWhiteSpace(incoming.ResultText))
+                var forLine = incomingList.Where(i => i.VisitServiceId == item.VisitServiceId).ToList();
+                if (forLine.Count == 0)
+                {
+                    continue;
+                }
+
+                var currents = await _db.TestResult
+                    .Where(r => r.VisitServiceId == line.Id && r.IsCurrent)
+                    .ToListAsync();
+
+                foreach (var incoming in forLine)
                 {
                     withResults++;
-                    var existing = await _db.TestResult
-                        .Where(r => r.VisitServiceId == line.Id && r.IsCurrent)
-                        .OrderByDescending(r => r.Version)
-                        .FirstOrDefaultAsync();
+                    touchedVs.Add(line.Id);
                     var parameterName = string.IsNullOrWhiteSpace(incoming.ParameterName)
                         ? null
                         : incoming.ParameterName.Trim();
+                    var existing = parameterName != null
+                        ? currents.FirstOrDefault(r =>
+                              string.Equals(r.ParameterName, parameterName, StringComparison.OrdinalIgnoreCase))
+                        : currents.FirstOrDefault(r => string.IsNullOrWhiteSpace(r.ParameterName))
+                          ?? (currents.Count == 1 ? currents[0] : null);
+
                     if (existing == null)
                     {
-                        _db.TestResult.Add(new TestResult
+                        var row = new TestResult
                         {
                             VisitServiceId = line.Id,
                             Source = "Outside",
                             ResultText = incoming.ResultText.Trim(),
                             Units = string.IsNullOrWhiteSpace(incoming.Units) ? null : incoming.Units.Trim(),
-                            ReferenceRange = string.IsNullOrWhiteSpace(incoming.ReferenceRange) ? null : incoming.ReferenceRange.Trim(),
+                            ReferenceRange = string.IsNullOrWhiteSpace(incoming.ReferenceRange)
+                                ? null
+                                : incoming.ReferenceRange.Trim(),
                             ParameterName = parameterName,
                             EnteredByName = "Outside lab receive",
                             EnteredAt = DateTime.Now,
                             Version = 1,
                             IsCurrent = true
-                        });
+                        };
+                        _db.TestResult.Add(row);
+                        currents.Add(row);
                     }
                     else
                     {
@@ -207,13 +227,12 @@ namespace ClinoraBE.Controllers
                         existing.Source = "Outside";
                         existing.EnteredAt = DateTime.Now;
                     }
+                }
 
+                if (touchedVs.Contains(line.Id))
+                {
                     line.Status = VisitServiceStatuses.ResultEntered;
                     line.ResultEnteredAt = DateTime.Now;
-                }
-                else if (line.Status == VisitServiceStatuses.SentOut)
-                {
-                    // Keep SentOut until a value is pasted — do not force InLab on partial receive.
                 }
             }
 

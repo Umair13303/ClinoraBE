@@ -12,6 +12,7 @@ namespace ClinoraBE.Controllers
     [ApiController]
     [Route("api/visits")]
     [Authorize]
+    [StationAuthorize("FrontDesk")]
     public class VisitsController : ControllerBase
     {
         private readonly ClinoraContext _db;
@@ -306,9 +307,9 @@ namespace ClinoraBE.Controllers
             }
 
             var lines = await _db.VisitService.Where(vs => vs.VisitId == id).ToListAsync();
-            if (lines.Any(l => l.Status is VisitServiceStatuses.Finalized or VisitServiceStatuses.ResultEntered or VisitServiceStatuses.InLab or VisitServiceStatuses.SentOut or VisitServiceStatuses.Imaged))
+            if (lines.Any(l => l.Status is VisitServiceStatuses.Finalized or VisitServiceStatuses.ResultEntered or VisitServiceStatuses.InLab or VisitServiceStatuses.SentOut or VisitServiceStatuses.Performed or VisitServiceStatuses.Imaged))
             {
-                return BadRequest(new { message = "Cannot cancel after lab work has started. Reject samples instead." });
+                return BadRequest(new { message = "Cannot cancel after lab / imaging work has started. Reject samples instead." });
             }
 
             visit.VisitStatus = VisitStatuses.Cancelled;

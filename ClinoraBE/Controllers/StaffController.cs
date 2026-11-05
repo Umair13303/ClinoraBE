@@ -1,3 +1,4 @@
+using ClinoraBE.Infrastructure;
 using ClinoraBE.Model.DAL;
 using ClinoraBE.Model.ViewModel;
 using Microsoft.AspNetCore.Authorization;
@@ -9,6 +10,7 @@ namespace ClinoraBE.Controllers
     [ApiController]
     [Route("api/staff")]
     [Authorize]
+    [StationAuthorize("FrontDesk", "Admin")]
     public class StaffController : ControllerBase
     {
         private readonly ClinoraContext _db;

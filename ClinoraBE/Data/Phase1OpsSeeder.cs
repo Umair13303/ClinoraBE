@@ -33,6 +33,10 @@ namespace ClinoraBE.Data
                   ALTER TABLE dbo.LabSample ADD RejectedAt DATETIME2 NULL;
                 IF COL_LENGTH('dbo.LabSample', 'RejectedByName') IS NULL
                   ALTER TABLE dbo.LabSample ADD RejectedByName NVARCHAR(200) NULL;
+                IF COL_LENGTH('dbo.LabSample', 'ReceivedAt') IS NULL
+                  ALTER TABLE dbo.LabSample ADD ReceivedAt DATETIME2 NULL;
+                IF COL_LENGTH('dbo.LabSample', 'ReceivedBy') IS NULL
+                  ALTER TABLE dbo.LabSample ADD ReceivedBy NVARCHAR(200) NULL;
 
                 IF COL_LENGTH('dbo.OutsideLabShipment', 'ExpectedAt') IS NULL
                   ALTER TABLE dbo.OutsideLabShipment ADD ExpectedAt DATETIME2 NULL;
@@ -47,6 +51,24 @@ namespace ClinoraBE.Data
                   ALTER TABLE dbo.TestResult ADD IsCritical BIT NOT NULL CONSTRAINT DF_TestResult_IsCritical DEFAULT 0;
                 IF COL_LENGTH('dbo.TestResult', 'ParameterName') IS NULL
                   ALTER TABLE dbo.TestResult ADD ParameterName NVARCHAR(100) NULL;
+
+                IF COL_LENGTH('dbo.TestResult', 'ResultText') IS NOT NULL
+                   AND EXISTS (
+                     SELECT 1 FROM sys.columns c
+                     JOIN sys.types t ON c.user_type_id = t.user_type_id
+                     WHERE c.object_id = OBJECT_ID('dbo.TestResult')
+                       AND c.name = 'ResultText'
+                       AND t.name = N'nvarchar'
+                       AND c.max_length > 0
+                   )
+                BEGIN
+                  ALTER TABLE dbo.TestResult ALTER COLUMN ResultText NVARCHAR(MAX) NOT NULL;
+                END
+
+                UPDATE dbo.Service
+                SET ReportProfile = N'Radiology'
+                WHERE Pathway = N'Radiology'
+                  AND (ReportProfile IS NULL OR ReportProfile = N'' OR ReportProfile = N'Standard');
 
                 IF OBJECT_ID('dbo.ServiceParameter','U') IS NULL
                 CREATE TABLE dbo.ServiceParameter (
@@ -192,6 +214,7 @@ namespace ClinoraBE.Data
                 {
                     Name = "Chest X-ray — PA",
                     Modality = "XRay",
+                    Profile = ReportProfiles.Radiology,
                     ServiceId = xray?.Id,
                     Body = """
                         <p><strong>CLINICAL HISTORY:</strong></p><p>—</p>
@@ -206,6 +229,7 @@ namespace ClinoraBE.Data
                 {
                     Name = "Ultrasound abdomen — routine",
                     Modality = "Ultrasound",
+                    Profile = ReportProfiles.Radiology,
                     ServiceId = us?.Id,
                     Body = """
                         <p><strong>CLINICAL HISTORY:</strong></p><p>—</p>
@@ -220,6 +244,7 @@ namespace ClinoraBE.Data
                 {
                     Name = "CT head — non-contrast",
                     Modality = "CT",
+                    Profile = ReportProfiles.Radiology,
                     ServiceId = ct?.Id,
                     Body = """
                         <p><strong>CLINICAL HISTORY:</strong></p><p>—</p>
@@ -620,7 +645,8 @@ namespace ClinoraBE.Data
                     "Dr. Demo Radiologist");
             }
 
-            // One patient, one visit, all four tests → one combined report card.
+            // Demo-only combined card (CBC+Semen+Histo+X-ray). Production flow usually splits
+            // radiology (sign) from lab (doctor finalize) into separate reports.
             if (need.Contains(demos[4]))
             {
                 var services = new List<(Service Service, string Profile, List<(string? Param, string Result, string? Units, string? Ref)> Rows)>();

@@ -11,7 +11,6 @@ namespace ClinoraBE.Controllers
     [ApiController]
     [Route("api/radiology")]
     [Authorize]
-    [StationAuthorize("Radiology")]
     public class RadiologyController : ControllerBase
     {
         private readonly ClinoraContext _db;
@@ -22,6 +21,7 @@ namespace ClinoraBE.Controllers
         }
 
         [HttpGet("templates")]
+        [StationAuthorize("Lab", "Radiology")]
         public async Task<ActionResult<List<RadiologyTemplateDto>>> Templates(
             [FromQuery] int? serviceId = null,
             [FromQuery] string? profile = null)
@@ -46,6 +46,7 @@ namespace ClinoraBE.Controllers
         }
 
         [HttpGet("templates/all")]
+        [StationAuthorize("Admin", "Radiology")]
         public async Task<ActionResult<List<RadiologyTemplateDto>>> TemplatesAll([FromQuery] string? profile = null)
         {
             var query = _db.RadiologyTemplate.AsNoTracking().AsQueryable();
@@ -64,6 +65,7 @@ namespace ClinoraBE.Controllers
         }
 
         [HttpPost("templates")]
+        [StationAuthorize("Admin")]
         public async Task<ActionResult<RadiologyTemplateDto>> CreateTemplate([FromBody] UpsertRadiologyTemplateRequest request)
         {
             var name = (request.Name ?? string.Empty).Trim();
@@ -94,6 +96,7 @@ namespace ClinoraBE.Controllers
         }
 
         [HttpPut("templates/{id:int}")]
+        [StationAuthorize("Admin")]
         public async Task<ActionResult<RadiologyTemplateDto>> UpdateTemplate(int id, [FromBody] UpsertRadiologyTemplateRequest request)
         {
             var entity = await _db.RadiologyTemplate.FirstOrDefaultAsync(t => t.Id == id);
@@ -126,7 +129,52 @@ namespace ClinoraBE.Controllers
             return Ok(await GetTemplateDto(entity.Id));
         }
 
+        [HttpPost("perform")]
+        [StationAuthorize("Radiology")]
+        public async Task<ActionResult> Perform([FromBody] RadiologyPerformRequest request)
+        {
+            var line = await _db.VisitService.FirstOrDefaultAsync(vs => vs.Id == request.VisitServiceId);
+            if (line == null)
+            {
+                return NotFound(new { message = "Visit service not found." });
+            }
+
+            var branchId = BranchContext.ResolveBranchId(Request, User);
+            if (!await BranchContext.VisitAllowedAsync(_db, line.VisitId, branchId))
+            {
+                return NotFound(new { message = "Visit service not found for this branch." });
+            }
+
+            var service = await _db.Service.AsNoTracking().FirstOrDefaultAsync(s => s.Id == line.ServiceId);
+            if (service == null || service.Pathway != ServicePathways.Radiology)
+            {
+                return BadRequest(new { message = "Only radiology pathway studies can be marked performed here." });
+            }
+
+            if (line.Status == VisitServiceStatuses.Performed || line.Status == VisitServiceStatuses.Imaged)
+            {
+                return Ok(new { message = "Study already marked performed.", status = line.Status });
+            }
+
+            if (line.Status != VisitServiceStatuses.AwaitingImaging)
+            {
+                return BadRequest(new { message = "Only awaiting imaging studies can be marked performed." });
+            }
+
+            line.Status = VisitServiceStatuses.Performed;
+            await _db.SaveChangesAsync();
+            return Ok(new
+            {
+                message = "X-Ray / study marked performed. Radiologist can enter findings.",
+                status = line.Status,
+                performedByName = string.IsNullOrWhiteSpace(request.PerformedByName)
+                    ? null
+                    : request.PerformedByName.Trim()
+            });
+        }
+
         [HttpPost("complete")]
+        [StationAuthorize("Radiology")]
         public async Task<ActionResult> Complete([FromBody] RadiologyCompleteRequest request)
         {
             var result = await SaveDraftAsync(request);
@@ -135,12 +183,19 @@ namespace ClinoraBE.Controllers
                 return result.Error;
             }
 
-            return Ok(new { message = "Report drafted. Radiologist can sign when ready.", templateName = result.TemplateName });
+            return Ok(new { message = "Report drafted. Radiologist can approve and sign when ready.", templateName = result.TemplateName });
         }
 
         [HttpPost("sign")]
+        [StationAuthorize("Radiology")]
         public async Task<ActionResult<ReportDto>> Sign([FromBody] RadiologyCompleteRequest request)
         {
+            var byName = (request.PerformedByName ?? string.Empty).Trim();
+            if (byName.Length < 2)
+            {
+                return BadRequest(new { message = "Enter the radiologist name before approving and signing." });
+            }
+
             var draft = await SaveDraftAsync(request);
             if (draft.Error != null)
             {
@@ -153,7 +208,13 @@ namespace ClinoraBE.Controllers
                 return BadRequest(new { message = "Save the drafted report before signing." });
             }
 
-            var byName = string.IsNullOrWhiteSpace(request.PerformedByName) ? "Radiologist" : request.PerformedByName.Trim();
+            var alreadyReported = await _db.ReportLine.AsNoTracking()
+                .AnyAsync(rl => rl.VisitServiceId == line.Id);
+            if (alreadyReported)
+            {
+                return BadRequest(new { message = "This study already has an approved report." });
+            }
+
             var now = DateTime.Now;
             line.Status = VisitServiceStatuses.Finalized;
             line.FinalizedAt = now;
@@ -240,9 +301,19 @@ namespace ClinoraBE.Controllers
                 return (null, null, NotFound(new { message = "Visit service not found for this branch." }));
             }
 
-            if (line.Status is not (VisitServiceStatuses.AwaitingImaging or VisitServiceStatuses.Imaged))
+            var service = await _db.Service.AsNoTracking().FirstOrDefaultAsync(s => s.Id == line.ServiceId);
+            if (service == null || service.Pathway != ServicePathways.Radiology)
             {
-                return (null, null, BadRequest(new { message = "Only awaiting / drafted radiology studies can be saved here." }));
+                return (null, null, BadRequest(new { message = "Only radiology pathway studies can be reported here." }));
+            }
+
+            // Allow draft after perform; also accept AwaitingImaging so a radiologist can report in one step.
+            if (line.Status is not (
+                VisitServiceStatuses.AwaitingImaging
+                or VisitServiceStatuses.Performed
+                or VisitServiceStatuses.Imaged))
+            {
+                return (null, null, BadRequest(new { message = "Only awaiting / performed / drafted radiology studies can be saved here." }));
             }
 
             var findings = (request.Findings ?? string.Empty).Trim();

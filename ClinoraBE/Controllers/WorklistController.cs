@@ -146,16 +146,21 @@ namespace ClinoraBE.Controllers
             var branchId = BranchContext.ResolveBranchId(Request, User);
             var visitIds = await BranchContext.VisitIdsForBranchAsync(_db, branchId);
 
+            var today = DateTime.Today;
             var items = await (
                 from vs in _db.VisitService.AsNoTracking()
                 join v in _db.Visit.AsNoTracking() on vs.VisitId equals v.Id
                 join p in _db.Patient.AsNoTracking() on v.PatientId equals p.Id
                 join s in _db.Service.AsNoTracking() on vs.ServiceId equals s.Id
-                where (vs.Status == VisitServiceStatuses.ResultEntered
-                      || vs.Status == VisitServiceStatuses.Imaged
-                      || vs.Status == VisitServiceStatuses.Finalized)
+                where s.Pathway != ServicePathways.Radiology
                       && visitIds.Contains(v.Id)
                       && v.VisitStatus == VisitStatuses.Active
+                      && (
+                          vs.Status == VisitServiceStatuses.ResultEntered
+                          || (vs.Status == VisitServiceStatuses.Finalized
+                              && vs.FinalizedAt != null
+                              && vs.FinalizedAt >= today)
+                      )
                 orderby v.CreatedAt descending
                 select new ResultWorkItemDto
                 {
@@ -218,6 +223,7 @@ namespace ClinoraBE.Controllers
         }
 
         [HttpGet("summary")]
+        [StationAuthorize("FrontDesk", "Phlebotomy", "Lab", "Doctor", "Radiology")]
         public async Task<ActionResult<WorklistSummaryDto>> Summary()
         {
             var branchId = BranchContext.ResolveBranchId(Request, User);
@@ -244,14 +250,82 @@ namespace ClinoraBE.Controllers
             return Ok(new WorklistSummaryDto
             {
                 AwaitingCollection = await lines.CountAsync(vs => vs.Status == VisitServiceStatuses.AwaitingCollection),
+                Collected = await lines.CountAsync(vs => vs.Status == VisitServiceStatuses.Collected),
                 InLab = await lines.CountAsync(vs => vs.Status == VisitServiceStatuses.InLab),
                 SentOut = await lines.CountAsync(vs => vs.Status == VisitServiceStatuses.SentOut),
-                AwaitingFinalize = await lines.CountAsync(vs =>
-                    vs.Status == VisitServiceStatuses.ResultEntered || vs.Status == VisitServiceStatuses.Imaged),
+                AwaitingFinalize = await lines.CountAsync(vs => vs.Status == VisitServiceStatuses.ResultEntered),
                 Radiology = await lines.CountAsync(vs =>
-                    vs.Status == VisitServiceStatuses.AwaitingImaging || vs.Status == VisitServiceStatuses.Imaged),
+                    vs.Status == VisitServiceStatuses.AwaitingImaging
+                    || vs.Status == VisitServiceStatuses.Performed
+                    || vs.Status == VisitServiceStatuses.Imaged),
                 OutsideOverdue = overdue
             });
+        }
+
+        [HttpGet("receiving")]
+        [StationAuthorize("Lab")]
+        public async Task<ActionResult<List<ReceivingSampleDto>>> Receiving()
+        {
+            var branchId = BranchContext.ResolveBranchId(Request, User);
+            var visitIds = await BranchContext.VisitIdsForBranchAsync(_db, branchId);
+
+            var samples = await (
+                from s in _db.LabSample.AsNoTracking()
+                join v in _db.Visit.AsNoTracking() on s.VisitId equals v.Id
+                join p in _db.Patient.AsNoTracking() on v.PatientId equals p.Id
+                join st in _db.SampleType.AsNoTracking() on s.SampleTypeId equals st.Id
+                join c in _db.Container.AsNoTracking() on s.ContainerId equals c.Id
+                join bc in _db.BottleColor.AsNoTracking() on s.BottleColorId equals bc.Id
+                join g in _db.SampleGroup.AsNoTracking() on s.SampleGroupId equals g.Id into gj
+                from g in gj.DefaultIfEmpty()
+                where !s.IsSendOut
+                      && s.SampleStatus == "Collected"
+                      && s.ReceivedAt == null
+                      && visitIds.Contains(v.Id)
+                      && v.VisitStatus == VisitStatuses.Active
+                      && _db.VisitService.Any(vs =>
+                          vs.SampleId == s.Id && vs.Status == VisitServiceStatuses.Collected)
+                orderby s.CollectedAt
+                select new
+                {
+                    Sample = s,
+                    v.VisitNumber,
+                    PatientName = p.FullName,
+                    SampleTypeName = st.Name,
+                    ContainerName = c.Name,
+                    BottleColorName = bc.Name,
+                    SampleGroupName = g != null ? g.Name : null
+                }
+            ).Take(80).ToListAsync();
+
+            var result = new List<ReceivingSampleDto>();
+            foreach (var row in samples)
+            {
+                var tests = await (
+                    from link in _db.SampleTest.AsNoTracking()
+                    join vs in _db.VisitService.AsNoTracking() on link.VisitServiceId equals vs.Id
+                    join svc in _db.Service.AsNoTracking() on vs.ServiceId equals svc.Id
+                    where link.SampleId == row.Sample.Id && vs.Status == VisitServiceStatuses.Collected
+                    select svc.Name
+                ).ToListAsync();
+
+                result.Add(new ReceivingSampleDto
+                {
+                    SampleId = row.Sample.Id,
+                    Barcode = row.Sample.Barcode,
+                    VisitNumber = row.VisitNumber,
+                    PatientName = row.PatientName,
+                    SampleGroupName = row.SampleGroupName,
+                    SampleTypeName = row.SampleTypeName,
+                    ContainerName = row.ContainerName,
+                    BottleColorName = row.BottleColorName,
+                    CollectedAt = row.Sample.CollectedAt,
+                    PhlebotomistName = row.Sample.PhlebotomistName,
+                    Tests = tests
+                });
+            }
+
+            return Ok(result);
         }
 
         [HttpGet("radiology")]
@@ -269,7 +343,9 @@ namespace ClinoraBE.Controllers
                 join tr in _db.TestResult.AsNoTracking().Where(r => r.IsCurrent) on vs.Id equals tr.VisitServiceId into trj
                 from tr in trj.DefaultIfEmpty()
                 where s.Pathway == ServicePathways.Radiology
-                      && (vs.Status == VisitServiceStatuses.AwaitingImaging || vs.Status == VisitServiceStatuses.Imaged)
+                      && (vs.Status == VisitServiceStatuses.AwaitingImaging
+                          || vs.Status == VisitServiceStatuses.Performed
+                          || vs.Status == VisitServiceStatuses.Imaged)
                       && visitIds.Contains(v.Id)
                       && v.VisitStatus == VisitStatuses.Active
                 orderby vs.Urgent descending, v.CreatedAt
