@@ -34,6 +34,7 @@ namespace ClinoraBE.Model.ViewModel
         public const string Standard = "Standard";
         public const string Narrative = "Narrative";
         public const string Semen = "Semen";
+        public const string Ihc = "Ihc";
         public const string Radiology = "Radiology";
 
         public static string Normalize(string? value) =>
@@ -61,6 +62,7 @@ namespace ClinoraBE.Model.ViewModel
         public List<LookupItemDto> BottleColors { get; set; } = [];
         public List<LookupItemDto> SampleGroups { get; set; } = [];
         public List<OutsideLabDto> OutsideLabs { get; set; } = [];
+        public List<LookupItemDto> Antibodies { get; set; } = [];
     }
 
     public class CollectionLineDto

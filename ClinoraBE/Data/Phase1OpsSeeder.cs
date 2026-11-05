@@ -423,6 +423,89 @@ namespace ClinoraBE.Data
                 }
             }
 
+            await db.Database.ExecuteSqlRawAsync("""
+                IF OBJECT_ID('dbo.Antibody','U') IS NULL
+                CREATE TABLE dbo.Antibody (
+                  Id INT IDENTITY(1,1) PRIMARY KEY,
+                  Code NVARCHAR(40) NOT NULL,
+                  Name NVARCHAR(200) NOT NULL,
+                  Status BIT NOT NULL DEFAULT 1
+                );
+                """);
+
+            if (!await db.Antibody.AnyAsync())
+            {
+                db.Antibody.AddRange(
+                    new Antibody { Code = "ER", Name = "Estrogen receptor" },
+                    new Antibody { Code = "PR", Name = "Progesterone receptor" },
+                    new Antibody { Code = "HER2", Name = "HER2 / neu" },
+                    new Antibody { Code = "KI67", Name = "Ki-67" },
+                    new Antibody { Code = "CK7", Name = "Cytokeratin 7" },
+                    new Antibody { Code = "CK20", Name = "Cytokeratin 20" },
+                    new Antibody { Code = "TTF1", Name = "TTF-1" },
+                    new Antibody { Code = "CD20", Name = "CD20" },
+                    new Antibody { Code = "CD3", Name = "CD3" },
+                    new Antibody { Code = "P53", Name = "p53" }
+                );
+                await db.SaveChangesAsync();
+            }
+
+            if (!await db.Service.AnyAsync(s => s.Name == "IHC Breast Panel"))
+            {
+                db.Service.Add(new Service
+                {
+                    Name = "IHC Breast Panel",
+                    Category = "Laboratory",
+                    Fee = 8500,
+                    NormalMinutes = 2880,
+                    UrgentMinutes = 1440,
+                    Pathway = ServicePathways.Laboratory,
+                    ReportProfile = ReportProfiles.Ihc,
+                    SampleTypeId = tissueType?.Id,
+                    ContainerId = formalinPot?.Id,
+                    BottleColorId = clearColor?.Id,
+                    SampleGroupId = tissueGroup?.Id,
+                    CanSendOut = false,
+                    Status = true,
+                    CreatedOn = DateTime.UtcNow
+                });
+                await db.SaveChangesAsync();
+            }
+            else
+            {
+                var ihc = await db.Service.FirstAsync(s => s.Name == "IHC Breast Panel");
+                var changed = false;
+                if (string.IsNullOrWhiteSpace(ihc.ReportProfile) || ihc.ReportProfile == ReportProfiles.Standard)
+                {
+                    ihc.ReportProfile = ReportProfiles.Ihc;
+                    changed = true;
+                }
+                if (tissueType != null && ihc.SampleTypeId != tissueType.Id)
+                {
+                    ihc.SampleTypeId = tissueType.Id;
+                    changed = true;
+                }
+                if (formalinPot != null && (ihc.ContainerId == null || ihc.ContainerId != formalinPot.Id))
+                {
+                    ihc.ContainerId = formalinPot.Id;
+                    changed = true;
+                }
+                if (clearColor != null && ihc.BottleColorId == null)
+                {
+                    ihc.BottleColorId = clearColor.Id;
+                    changed = true;
+                }
+                if (tissueGroup != null && ihc.SampleGroupId != tissueGroup.Id)
+                {
+                    ihc.SampleGroupId = tissueGroup.Id;
+                    changed = true;
+                }
+                if (changed)
+                {
+                    await db.SaveChangesAsync();
+                }
+            }
+
             await SeedTodayDemoReportsAsync(db);
         }
 
@@ -438,7 +521,8 @@ namespace ClinoraBE.Data
                 $"DEMO-SEM-{day}",
                 $"DEMO-HIS-{day}",
                 $"DEMO-XRY-{day}",
-                $"DEMO-ALL-{day}"
+                $"DEMO-ALL-{day}",
+                $"DEMO-IHC-{day}"
             };
             var existing = await db.Visit.AsNoTracking()
                 .Where(v => demos.Contains(v.VisitNumber))
@@ -456,8 +540,9 @@ namespace ClinoraBE.Data
             var histo = await db.Service.AsNoTracking().FirstOrDefaultAsync(s => s.Name == "Histopathology");
             var xray = await db.Service.AsNoTracking().FirstOrDefaultAsync(s =>
                 s.Name.Contains("X-ray") || s.Name.Contains("Xray"));
+            var ihc = await db.Service.AsNoTracking().FirstOrDefaultAsync(s => s.Name == "IHC Breast Panel");
 
-            if (cbc == null && semen == null && histo == null && xray == null)
+            if (cbc == null && semen == null && histo == null && xray == null && ihc == null)
             {
                 return;
             }
@@ -643,6 +728,25 @@ namespace ClinoraBE.Data
                     ReportProfiles.Radiology,
                     [("Chest X-ray — PA", xrayHtml, null, null)],
                     "Dr. Demo Radiologist");
+            }
+
+            var ihcJson = """
+                {"profile":"Ihc","panelName":"Breast panel","markers":[{"code":"ER","name":"Estrogen receptor","result":"Positive","percent":"90","intensity":"Strong","score":"8/8","notes":""},{"code":"PR","name":"Progesterone receptor","result":"Positive","percent":"70","intensity":"Moderate","score":"6/8","notes":""},{"code":"HER2","name":"HER2 / neu","result":"Negative","percent":"","intensity":"0","score":"0","notes":""},{"code":"KI67","name":"Ki-67","result":"Positive","percent":"15","intensity":"","score":"","notes":"Low proliferative index"}],"interpretation":"ER+/PR+/HER2− · Luminal A–like phenotype."}
+                """;
+
+            if (need.Contains(demos[5]) && ihc != null)
+            {
+                await AddDemoAsync(
+                    demos[5],
+                    "Nadia Fatima (Demo IHC)",
+                    "03001234005",
+                    48,
+                    "Female",
+                    ihc,
+                    ServicePathways.Laboratory,
+                    ReportProfiles.Ihc,
+                    [("IHC worksheet", ihcJson, null, null)],
+                    "Dr. Demo Pathologist");
             }
 
             // Demo-only combined card (CBC+Semen+Histo+X-ray). Production flow usually splits

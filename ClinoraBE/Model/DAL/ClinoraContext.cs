@@ -25,6 +25,7 @@ namespace ClinoraBE.Model.DAL
         public virtual DbSet<SampleGroup> SampleGroup { get; set; }
         public virtual DbSet<Container> Container { get; set; }
         public virtual DbSet<OutsideLab> OutsideLab { get; set; }
+        public virtual DbSet<Antibody> Antibody { get; set; }
         public virtual DbSet<LabSample> LabSample { get; set; }
         public virtual DbSet<SampleTest> SampleTest { get; set; }
         public virtual DbSet<OutsideLabShipment> OutsideLabShipment { get; set; }
@@ -101,6 +102,7 @@ namespace ClinoraBE.Model.DAL
             modelBuilder.Entity<SampleGroup>().ToTable("SampleGroup");
             modelBuilder.Entity<Container>().ToTable("Container");
             modelBuilder.Entity<OutsideLab>().ToTable("OutsideLab");
+            modelBuilder.Entity<Antibody>().ToTable("Antibody");
             modelBuilder.Entity<LabSample>().ToTable("LabSample");
             modelBuilder.Entity<SampleTest>().ToTable("SampleTest");
             modelBuilder.Entity<OutsideLabShipment>().ToTable("OutsideLabShipment");

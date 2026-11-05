@@ -42,6 +42,15 @@ namespace ClinoraBE.Model.DAL
         public bool Status { get; set; } = true;
     }
 
+    /// <summary>IHC antibody catalog (ER, PR, HER2, …) for worksheet pick-lists.</summary>
+    public partial class Antibody
+    {
+        public int Id { get; set; }
+        public string Code { get; set; } = string.Empty;
+        public string Name { get; set; } = string.Empty;
+        public bool Status { get; set; } = true;
+    }
+
     public partial class LabSample
     {
         public int Id { get; set; }

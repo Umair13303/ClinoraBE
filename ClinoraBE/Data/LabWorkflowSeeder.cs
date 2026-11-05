@@ -51,6 +51,14 @@ namespace ClinoraBE.Data
                   Status BIT NOT NULL DEFAULT 1
                 );
 
+                IF OBJECT_ID('dbo.Antibody','U') IS NULL
+                CREATE TABLE dbo.Antibody (
+                  Id INT IDENTITY(1,1) PRIMARY KEY,
+                  Code NVARCHAR(40) NOT NULL,
+                  Name NVARCHAR(200) NOT NULL,
+                  Status BIT NOT NULL DEFAULT 1
+                );
+
                 IF COL_LENGTH('dbo.Service', 'Pathway') IS NULL
                   ALTER TABLE dbo.Service ADD Pathway NVARCHAR(40) NOT NULL CONSTRAINT DF_Service_Pathway DEFAULT N'Laboratory';
                 IF COL_LENGTH('dbo.Service', 'ReportProfile') IS NULL
@@ -236,6 +244,23 @@ namespace ClinoraBE.Data
                 db.OutsideLab.AddRange(
                     new OutsideLab { Name = "City Reference Lab", Phone = "021-111000111", Address = "Karachi" },
                     new OutsideLab { Name = "Metro Diagnostics", Phone = "042-111222333", Address = "Lahore" }
+                );
+                await db.SaveChangesAsync();
+            }
+
+            if (!await db.Antibody.AnyAsync())
+            {
+                db.Antibody.AddRange(
+                    new Antibody { Code = "ER", Name = "Estrogen receptor" },
+                    new Antibody { Code = "PR", Name = "Progesterone receptor" },
+                    new Antibody { Code = "HER2", Name = "HER2 / neu" },
+                    new Antibody { Code = "KI67", Name = "Ki-67" },
+                    new Antibody { Code = "CK7", Name = "Cytokeratin 7" },
+                    new Antibody { Code = "CK20", Name = "Cytokeratin 20" },
+                    new Antibody { Code = "TTF1", Name = "TTF-1" },
+                    new Antibody { Code = "CD20", Name = "CD20" },
+                    new Antibody { Code = "CD3", Name = "CD3" },
+                    new Antibody { Code = "P53", Name = "p53" }
                 );
                 await db.SaveChangesAsync();
             }

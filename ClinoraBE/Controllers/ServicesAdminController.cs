@@ -180,7 +180,7 @@ namespace ClinoraBE.Controllers
             }
 
             var value = ReportProfiles.Normalize(profile);
-            return value is ReportProfiles.Narrative or ReportProfiles.Semen or ReportProfiles.Standard
+            return value is ReportProfiles.Narrative or ReportProfiles.Semen or ReportProfiles.Ihc or ReportProfiles.Standard
                 ? value
                 : ReportProfiles.Standard;
         }

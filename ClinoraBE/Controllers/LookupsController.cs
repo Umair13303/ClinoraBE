@@ -49,6 +49,11 @@ namespace ClinoraBE.Controllers
                     .Where(x => x.Status)
                     .OrderBy(x => x.Name)
                     .Select(x => new OutsideLabDto { Id = x.Id, Name = x.Name, Phone = x.Phone })
+                    .ToListAsync(),
+                Antibodies = await _db.Antibody.AsNoTracking()
+                    .Where(x => x.Status)
+                    .OrderBy(x => x.Code)
+                    .Select(x => new LookupItemDto { Id = x.Id, Code = x.Code, Name = x.Name })
                     .ToListAsync()
             };
 

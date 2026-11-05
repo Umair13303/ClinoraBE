@@ -148,6 +148,38 @@ namespace ClinoraBE.Controllers
             return Ok(new LookupItemDto { Id = entity.Id, Code = entity.Code, Name = entity.Name });
         }
 
+        [HttpPost("antibodies")]
+        public async Task<ActionResult<LookupItemDto>> UpsertAntibody([FromBody] UpsertLookupRequest request)
+        {
+            var name = (request.Name ?? string.Empty).Trim();
+            var code = (request.Code ?? string.Empty).Trim().ToUpperInvariant();
+            if (name.Length < 2 || code.Length < 1)
+            {
+                return BadRequest(new { message = "Code and name are required." });
+            }
+
+            Antibody entity;
+            if (request.Id is int id)
+            {
+                entity = await _db.Antibody.FirstOrDefaultAsync(x => x.Id == id);
+                if (entity == null)
+                {
+                    return NotFound(new { message = "Antibody not found." });
+                }
+                entity.Code = code;
+                entity.Name = name;
+                entity.Status = request.Status;
+            }
+            else
+            {
+                entity = new Antibody { Code = code, Name = name, Status = request.Status };
+                _db.Antibody.Add(entity);
+            }
+
+            await _db.SaveChangesAsync();
+            return Ok(new LookupItemDto { Id = entity.Id, Code = entity.Code, Name = entity.Name });
+        }
+
         [HttpPost("outside-labs")]
         public async Task<ActionResult<OutsideLabDto>> UpsertOutsideLab([FromBody] UpsertOutsideLabRequest request)
         {
