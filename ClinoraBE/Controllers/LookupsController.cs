@@ -10,7 +10,7 @@ namespace ClinoraBE.Controllers
     [ApiController]
     [Route("api/lookups")]
     [Authorize]
-    [StationAuthorize("FrontDesk", "Lab", "Doctor", "Radiology", "Phlebotomy")]
+    [StationAuthorize("FrontDesk", "Lab", "Doctor", "Radiology", "Phlebotomy", "Vaccination")]
     public class LookupsController : ControllerBase
     {
         private readonly ClinoraContext _db;

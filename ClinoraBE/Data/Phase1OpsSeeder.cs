@@ -506,7 +506,575 @@ namespace ClinoraBE.Data
                 }
             }
 
+            await EnsureVaccinationServicesAsync(db);
+            await EnsureMedicalCertificateServicesAsync(db);
             await SeedTodayDemoReportsAsync(db);
+            await SeedVaccinationDemoAsync(db);
+            await SeedMedicalCertificateDemoAsync(db);
+        }
+
+        private static async Task EnsureMedicalCertificateServicesAsync(ClinoraContext db)
+        {
+            await db.Database.ExecuteSqlRawAsync("""
+                IF COL_LENGTH('dbo.Visit', 'Purpose') IS NULL
+                  ALTER TABLE dbo.Visit ADD Purpose NVARCHAR(40) NOT NULL CONSTRAINT DF_Visit_Purpose DEFAULT N'Standard';
+
+                IF OBJECT_ID('dbo.MedicalCertificate','U') IS NULL
+                CREATE TABLE dbo.MedicalCertificate (
+                  Id INT IDENTITY(1,1) PRIMARY KEY,
+                  VisitId INT NOT NULL,
+                  Fitness NVARCHAR(40) NOT NULL DEFAULT N'Pending',
+                  DestinationCountry NVARCHAR(100) NULL,
+                  Remarks NVARCHAR(1000) NULL,
+                  IssuedByName NVARCHAR(200) NULL,
+                  IssuedAt DATETIME2 NULL
+                );
+                """);
+
+            async Task EnsureServiceAsync(string name, string category, string pathway, string profile, decimal fee, int normalMin)
+            {
+                if (!await db.Service.AnyAsync(s => s.Name == name))
+                {
+                    db.Service.Add(new Service
+                    {
+                        Name = name,
+                        Category = category,
+                        Fee = fee,
+                        NormalMinutes = normalMin,
+                        UrgentMinutes = Math.Max(30, normalMin / 2),
+                        Pathway = pathway,
+                        ReportProfile = profile,
+                        CanSendOut = false,
+                        Status = true,
+                        CreatedOn = DateTime.UtcNow
+                    });
+                    await db.SaveChangesAsync();
+                    return;
+                }
+
+                var svc = await db.Service.FirstAsync(s => s.Name == name);
+                var changed = false;
+                if (svc.Pathway != pathway)
+                {
+                    svc.Pathway = pathway;
+                    svc.Category = category;
+                    changed = true;
+                }
+                if (string.IsNullOrWhiteSpace(svc.ReportProfile) ||
+                    (svc.ReportProfile == ReportProfiles.Standard && profile != ReportProfiles.Standard) ||
+                    (profile == ReportProfiles.PhysicalExam && svc.ReportProfile != ReportProfiles.PhysicalExam) ||
+                    (profile == ReportProfiles.Radiology && svc.ReportProfile != ReportProfiles.Radiology))
+                {
+                    svc.ReportProfile = profile;
+                    changed = true;
+                }
+                if (changed)
+                {
+                    await db.SaveChangesAsync();
+                }
+            }
+
+            await EnsureServiceAsync("Physical Examination", "Physical", ServicePathways.Physical, ReportProfiles.PhysicalExam, 2500, 30);
+            await EnsureServiceAsync("Anti-HIV", "Laboratory", ServicePathways.Laboratory, ReportProfiles.Standard, 1800, 240);
+            await EnsureServiceAsync("HBsAg", "Laboratory", ServicePathways.Laboratory, ReportProfiles.Standard, 1500, 240);
+            await EnsureServiceAsync("Anti-HCV", "Laboratory", ServicePathways.Laboratory, ReportProfiles.Standard, 1800, 240);
+            await EnsureServiceAsync("VDRL", "Laboratory", ServicePathways.Laboratory, ReportProfiles.Standard, 1200, 240);
+
+            // Prefer existing chest x-ray naming
+            if (!await db.Service.AnyAsync(s => s.Name == "Chest X-ray" || s.Name.Contains("Chest X-ray") || s.Name.Contains("X-ray")))
+            {
+                await EnsureServiceAsync("Chest X-ray", "Radiology", ServicePathways.Radiology, ReportProfiles.Radiology, 2500, 60);
+            }
+            else
+            {
+                var xray = await db.Service.FirstAsync(s => s.Name == "Chest X-ray" || s.Name.Contains("Chest X-ray") || s.Name.Contains("X-ray"));
+                if (xray.Name != "Chest X-ray" && !await db.Service.AnyAsync(s => s.Name == "Chest X-ray"))
+                {
+                    // Keep existing; package lookup also matches Contains in controller? Package uses exact names.
+                    // Add alias service only if no exact "Chest X-ray"
+                    await EnsureServiceAsync("Chest X-ray", "Radiology", ServicePathways.Radiology, ReportProfiles.Radiology, xray.Fee, 60);
+                }
+                else if (xray.Pathway != ServicePathways.Radiology)
+                {
+                    xray.Pathway = ServicePathways.Radiology;
+                    xray.ReportProfile = ReportProfiles.Radiology;
+                    await db.SaveChangesAsync();
+                }
+            }
+        }
+
+        private static async Task SeedMedicalCertificateDemoAsync(ClinoraContext db)
+        {
+            var day = DateTime.Today.ToString("yyyyMMdd");
+            var names = new[]
+            {
+                "Physical Examination", "Anti-HIV", "HBsAg", "Anti-HCV", "VDRL", "Chest X-ray", "Hepatitis B vaccine"
+            };
+            var services = await db.Service.AsNoTracking()
+                .Where(s => names.Contains(s.Name) && s.Status)
+                .ToListAsync();
+            if (services.Count == 0)
+            {
+                return;
+            }
+
+            var branchId = await db.Branch.AsNoTracking().OrderBy(b => b.Id).Select(b => (int?)b.Id).FirstOrDefaultAsync();
+            var now = DateTime.Now;
+
+            // Pending package (work-in-progress queue)
+            var pendingNo = $"DEMO-WAF-{day}";
+            if (!await db.Visit.AsNoTracking().AnyAsync(v => v.VisitNumber == pendingNo))
+            {
+                var patient = new Patient
+                {
+                    FullName = "Omar Siddiqui (Demo Wafid)",
+                    Phone = "03001234007",
+                    Age = 29,
+                    Gender = "Male",
+                    PassportNo = "AB1234567",
+                    Status = true,
+                    BranchId = branchId,
+                    CreatedOn = now
+                };
+                db.Patient.Add(patient);
+                await db.SaveChangesAsync();
+
+                var fee = services.Sum(s => s.Fee);
+                var visit = new Visit
+                {
+                    VisitNumber = pendingNo,
+                    PatientId = patient.Id,
+                    TokenNo = Random.Shared.Next(10, 99),
+                    VisitStatus = VisitStatuses.Active,
+                    Purpose = VisitPurposes.MedicalCertificate,
+                    Fees = fee,
+                    Net = fee,
+                    AmountReceived = fee,
+                    PaymentReceived = true,
+                    BranchId = branchId,
+                    Notes = "Demo Wafid / Gulf medical package",
+                    CreatedAt = now
+                };
+                db.Visit.Add(visit);
+                await db.SaveChangesAsync();
+
+                foreach (var svc in services)
+                {
+                    var status = svc.Pathway switch
+                    {
+                        ServicePathways.Physical => VisitServiceStatuses.AwaitingExamination,
+                        ServicePathways.Radiology => VisitServiceStatuses.AwaitingImaging,
+                        ServicePathways.Vaccination => VisitServiceStatuses.AwaitingAdministration,
+                        ServicePathways.Consultation => VisitServiceStatuses.Completed,
+                        _ => VisitServiceStatuses.AwaitingCollection
+                    };
+                    db.VisitService.Add(new VisitService
+                    {
+                        VisitId = visit.Id,
+                        ServiceId = svc.Id,
+                        Fee = svc.Fee,
+                        Status = status
+                    });
+                }
+
+                db.MedicalCertificate.Add(new MedicalCertificate
+                {
+                    VisitId = visit.Id,
+                    Fitness = CertificateFitness.Pending,
+                    DestinationCountry = "Saudi Arabia"
+                });
+                await db.SaveChangesAsync();
+            }
+
+            // Fully completed + Fit — ready for final Wafid-style print (also on report collection)
+            var printNo = $"DEMO-WAF-FIT-{day}";
+            if (await db.Visit.AsNoTracking().AnyAsync(v => v.VisitNumber == printNo))
+            {
+                await EnsureCertificateReportsForIssuedAsync(db);
+                return;
+            }
+
+            var fitPatient = new Patient
+            {
+                FullName = "Mohsin Sharif (Demo Fit)",
+                Phone = "03001234008",
+                Age = 23,
+                Gender = "Male",
+                PassportNo = "PK9988776",
+                Status = true,
+                BranchId = branchId,
+                CreatedOn = now.AddHours(-5)
+            };
+            db.Patient.Add(fitPatient);
+            await db.SaveChangesAsync();
+
+            var fitFee = services.Sum(s => s.Fee);
+            var fitVisit = new Visit
+            {
+                VisitNumber = printNo,
+                PatientId = fitPatient.Id,
+                TokenNo = Random.Shared.Next(10, 99),
+                VisitStatus = VisitStatuses.Active,
+                Purpose = VisitPurposes.MedicalCertificate,
+                Fees = fitFee,
+                Net = fitFee,
+                AmountReceived = fitFee,
+                PaymentReceived = true,
+                BranchId = branchId,
+                Notes = "Demo completed Wafid report for final print",
+                CreatedAt = now.AddHours(-5)
+            };
+            db.Visit.Add(fitVisit);
+            await db.SaveChangesAsync();
+
+            var physicalJson = """
+                {"profile":"PhysicalExam","nationality":"Pakistani","maritalStatus":"Single","profession":"Labour","passportExpiry":"15/08/2030","heightCm":"165","weightKg":"60","bmi":"22.04","bp":"110/70","pulse":"80","rr":"18","visionRight":"6/6","visionLeft":"6/6","visionNearRight":"N5","visionNearLeft":"N5","colorVision":"Normal","hearingRight":"Normal","hearingLeft":"Normal","respiratory":"NAD","cardiovascular":"NAD","gastro":"NAD","nervous":"NAD","genitourinary":"NAD","musculoskeletal":"NAD","others":"NAD","appearance":"NAD","speech":"NAD","cognition":"NAD","orientation":"NAD","generalAppearance":"Well oriented","systemicNotes":"","fitnessComment":"Fit for employment as per GCC criteria."}
+                """;
+            var labResults = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["Anti-HIV"] = "Negative",
+                ["HBsAg"] = "Negative",
+                ["Anti-HCV"] = "Negative",
+                ["VDRL"] = "Negative"
+            };
+            var xrayHtml = "<p><strong>FINDINGS:</strong></p><p>No active lung lesion. Cardiomediastinal silhouette within normal limits.</p><p><strong>IMPRESSION:</strong></p><p>NAD</p>";
+
+            foreach (var svc in services)
+            {
+                string status;
+                string? resultText = null;
+                string? paramName = null;
+                string source = "Demo";
+
+                if (svc.Pathway == ServicePathways.Physical)
+                {
+                    status = VisitServiceStatuses.Examined;
+                    resultText = physicalJson;
+                    paramName = "Physical examination";
+                    source = "Physical";
+                }
+                else if (svc.Pathway == ServicePathways.Radiology)
+                {
+                    status = VisitServiceStatuses.Finalized;
+                    resultText = xrayHtml;
+                    paramName = "Chest X-ray — PA";
+                    source = "Radiology";
+                }
+                else if (svc.Pathway == ServicePathways.Vaccination)
+                {
+                    status = VisitServiceStatuses.Administered;
+                }
+                else
+                {
+                    status = VisitServiceStatuses.Finalized;
+                    resultText = labResults.TryGetValue(svc.Name, out var lab) ? lab : "Normal";
+                    paramName = svc.Name;
+                }
+
+                var line = new VisitService
+                {
+                    VisitId = fitVisit.Id,
+                    ServiceId = svc.Id,
+                    Fee = svc.Fee,
+                    Status = status,
+                    ResultEnteredAt = now.AddHours(-3),
+                    FinalizedAt = now.AddHours(-2),
+                    FinalizedByName = "Dr. Ayisha Demo"
+                };
+                db.VisitService.Add(line);
+                await db.SaveChangesAsync();
+
+                if (resultText != null)
+                {
+                    db.TestResult.Add(new TestResult
+                    {
+                        VisitServiceId = line.Id,
+                        Source = source,
+                        ResultText = resultText,
+                        ParameterName = paramName,
+                        EnteredByName = "Dr. Ayisha Demo",
+                        EnteredAt = now.AddHours(-3),
+                        Version = 1,
+                        IsCurrent = true
+                    });
+                }
+
+                if (svc.Pathway == ServicePathways.Vaccination)
+                {
+                    db.VaccinationRecord.Add(new VaccinationRecord
+                    {
+                        VisitServiceId = line.Id,
+                        BatchNo = "HB-2401",
+                        LotNo = "L7788",
+                        ExpiryDate = now.AddYears(1).Date,
+                        DoseNumber = "1st",
+                        Site = "Left deltoid",
+                        Route = "IM",
+                        AdministeredAt = now.AddHours(-2),
+                        AdministeredByName = "Nurse Demo",
+                        Notes = "Demo Hep B"
+                    });
+                }
+            }
+
+            db.MedicalCertificate.Add(new MedicalCertificate
+            {
+                VisitId = fitVisit.Id,
+                Fitness = CertificateFitness.Fit,
+                DestinationCountry = "Saudi Arabia",
+                Remarks = "Fit according to GCC / Wafid medical criteria (demo).",
+                IssuedByName = "Dr. Ayisha Demo",
+                // Keep on local "today" so Report collection Today list includes it after midnight seed.
+                IssuedAt = now
+            });
+            await db.SaveChangesAsync();
+
+            await EnsureCertificateReportsForIssuedAsync(db);
+        }
+
+        /// <summary>
+        /// Issued medical certificates appear on Report collection via Report rows.
+        /// </summary>
+        private static async Task EnsureCertificateReportsForIssuedAsync(ClinoraContext db)
+        {
+            var issued = await db.MedicalCertificate.AsNoTracking()
+                .Where(c => c.IssuedAt != null && c.Fitness != CertificateFitness.Pending)
+                .ToListAsync();
+
+            var todayStart = DateTime.Today;
+
+            foreach (var cert in issued)
+            {
+                var existingReport = await db.Report.FirstOrDefaultAsync(r =>
+                    r.VisitId == cert.VisitId && r.Pathway == VisitPurposes.MedicalCertificate);
+
+                // Demo / overnight: if cert is for today's visit number but FinalizedAt slipped to yesterday, bump it.
+                if (existingReport != null)
+                {
+                    var visitNo = await db.Visit.AsNoTracking()
+                        .Where(v => v.Id == cert.VisitId)
+                        .Select(v => v.VisitNumber)
+                        .FirstOrDefaultAsync();
+                    if (visitNo != null
+                        && visitNo.StartsWith("DEMO-WAF-FIT-", StringComparison.OrdinalIgnoreCase)
+                        && existingReport.FinalizedAt < todayStart)
+                    {
+                        existingReport.FinalizedAt = DateTime.Now;
+                        var trackedCert = await db.MedicalCertificate.FirstAsync(c => c.Id == cert.Id);
+                        trackedCert.IssuedAt = existingReport.FinalizedAt;
+                        await db.SaveChangesAsync();
+                    }
+                    continue;
+                }
+
+                var lines = await (
+                    from vs in db.VisitService.AsNoTracking()
+                    join s in db.Service.AsNoTracking() on vs.ServiceId equals s.Id
+                    where vs.VisitId == cert.VisitId
+                    orderby s.Pathway, s.Name
+                    select new { vs, s }
+                ).ToListAsync();
+
+                if (lines.Count == 0)
+                {
+                    continue;
+                }
+
+                var report = new Report
+                {
+                    VisitId = cert.VisitId,
+                    Pathway = VisitPurposes.MedicalCertificate,
+                    FinalizedByName = cert.IssuedByName ?? "Doctor",
+                    FinalizedAt = cert.IssuedAt ?? DateTime.Now,
+                    PrintCount = 0
+                };
+                db.Report.Add(report);
+                await db.SaveChangesAsync();
+
+                var vsIds = lines.Select(l => l.vs.Id).ToList();
+                var results = await db.TestResult.AsNoTracking()
+                    .Where(r => vsIds.Contains(r.VisitServiceId) && r.IsCurrent)
+                    .OrderByDescending(r => r.Version)
+                    .ToListAsync();
+                var resultMap = results
+                    .GroupBy(r => r.VisitServiceId)
+                    .ToDictionary(g => g.Key, g => g.First());
+
+                foreach (var row in lines)
+                {
+                    resultMap.TryGetValue(row.vs.Id, out var tr);
+                    var text = tr?.ResultText;
+                    if (row.s.Pathway == ServicePathways.Vaccination && string.IsNullOrWhiteSpace(text))
+                    {
+                        text = "Administered";
+                    }
+
+                    db.ReportLine.Add(new ReportLine
+                    {
+                        ReportId = report.Id,
+                        VisitServiceId = row.vs.Id,
+                        ServiceName = row.s.Name,
+                        ParameterName = tr?.ParameterName
+                            ?? (row.s.Pathway == ServicePathways.Physical ? "Physical examination" : null),
+                        ResultText = text,
+                        Units = tr?.Units,
+                        ReferenceRange = tr?.ReferenceRange,
+                        ReportProfile = string.IsNullOrWhiteSpace(row.s.ReportProfile)
+                            ? ReportProfiles.Standard
+                            : row.s.ReportProfile,
+                        Urgent = row.vs.Urgent,
+                        IsAbnormal = row.vs.IsAbnormal,
+                        IsCritical = row.vs.IsCritical
+                    });
+                }
+
+                db.ReportLine.Add(new ReportLine
+                {
+                    ReportId = report.Id,
+                    VisitServiceId = lines[0].vs.Id,
+                    ServiceName = $"Fitness: {cert.Fitness}",
+                    ParameterName = "Certificate",
+                    ResultText = cert.Remarks,
+                    ReportProfile = ReportProfiles.Standard,
+                    Urgent = false
+                });
+                await db.SaveChangesAsync();
+            }
+        }
+
+        private static async Task EnsureVaccinationServicesAsync(ClinoraContext db)
+        {
+            await db.Database.ExecuteSqlRawAsync("""
+                IF OBJECT_ID('dbo.VaccinationRecord','U') IS NULL
+                CREATE TABLE dbo.VaccinationRecord (
+                  Id INT IDENTITY(1,1) PRIMARY KEY,
+                  VisitServiceId INT NOT NULL,
+                  BatchNo NVARCHAR(80) NULL,
+                  LotNo NVARCHAR(80) NULL,
+                  ExpiryDate DATETIME2 NULL,
+                  DoseNumber NVARCHAR(40) NULL,
+                  Site NVARCHAR(80) NULL,
+                  Route NVARCHAR(80) NULL,
+                  AdministeredAt DATETIME2 NOT NULL,
+                  NextDueAt DATETIME2 NULL,
+                  AdministeredByName NVARCHAR(200) NULL,
+                  Notes NVARCHAR(500) NULL
+                );
+                """);
+
+            var vaccines = new (string Name, decimal Fee)[]
+            {
+                ("Hepatitis B vaccine", 1500),
+                ("Tetanus toxoid (TT)", 800),
+                ("Influenza vaccine", 2200),
+                ("COVID-19 booster", 0),
+                ("IPV (polio injectable)", 1200)
+            };
+
+            foreach (var (name, fee) in vaccines)
+            {
+                if (!await db.Service.AnyAsync(s => s.Name == name))
+                {
+                    db.Service.Add(new Service
+                    {
+                        Name = name,
+                        Category = "Vaccination",
+                        Fee = fee,
+                        NormalMinutes = 15,
+                        UrgentMinutes = 10,
+                        Pathway = ServicePathways.Vaccination,
+                        ReportProfile = ReportProfiles.Standard,
+                        CanSendOut = false,
+                        Status = true,
+                        CreatedOn = DateTime.UtcNow
+                    });
+                }
+                else
+                {
+                    var svc = await db.Service.FirstAsync(s => s.Name == name);
+                    var changed = false;
+                    if (svc.Pathway != ServicePathways.Vaccination)
+                    {
+                        svc.Pathway = ServicePathways.Vaccination;
+                        svc.Category = "Vaccination";
+                        changed = true;
+                    }
+                    if (string.IsNullOrWhiteSpace(svc.ReportProfile))
+                    {
+                        svc.ReportProfile = ReportProfiles.Standard;
+                        changed = true;
+                    }
+                    if (changed)
+                    {
+                        await db.SaveChangesAsync();
+                    }
+                }
+            }
+
+            await db.SaveChangesAsync();
+        }
+
+        private static async Task SeedVaccinationDemoAsync(ClinoraContext db)
+        {
+            var day = DateTime.Today.ToString("yyyyMMdd");
+            var visitNumber = $"DEMO-VAC-{day}";
+            if (await db.Visit.AsNoTracking().AnyAsync(v => v.VisitNumber == visitNumber))
+            {
+                return;
+            }
+
+            var vaccine = await db.Service.AsNoTracking()
+                .FirstOrDefaultAsync(s => s.Pathway == ServicePathways.Vaccination && s.Name == "Hepatitis B vaccine");
+            if (vaccine == null)
+            {
+                vaccine = await db.Service.AsNoTracking()
+                    .FirstOrDefaultAsync(s => s.Pathway == ServicePathways.Vaccination);
+            }
+            if (vaccine == null)
+            {
+                return;
+            }
+
+            var branchId = await db.Branch.AsNoTracking().OrderBy(b => b.Id).Select(b => (int?)b.Id).FirstOrDefaultAsync();
+            var now = DateTime.Now;
+            var patient = new Patient
+            {
+                FullName = "Ayesha Khan (Demo Vaccine)",
+                Phone = "03001234006",
+                Age = 28,
+                Gender = "Female",
+                Status = true,
+                BranchId = branchId,
+                CreatedOn = now
+            };
+            db.Patient.Add(patient);
+            await db.SaveChangesAsync();
+
+            var visit = new Visit
+            {
+                VisitNumber = visitNumber,
+                PatientId = patient.Id,
+                TokenNo = Random.Shared.Next(10, 99),
+                VisitStatus = VisitStatuses.Active,
+                Fees = vaccine.Fee,
+                Net = vaccine.Fee,
+                AmountReceived = vaccine.Fee,
+                PaymentReceived = true,
+                BranchId = branchId,
+                Notes = "Demo vaccination awaiting administration",
+                CreatedAt = now
+            };
+            db.Visit.Add(visit);
+            await db.SaveChangesAsync();
+
+            db.VisitService.Add(new VisitService
+            {
+                VisitId = visit.Id,
+                ServiceId = vaccine.Id,
+                Fee = vaccine.Fee,
+                Status = VisitServiceStatuses.AwaitingAdministration
+            });
+            await db.SaveChangesAsync();
         }
 
         /// <summary>

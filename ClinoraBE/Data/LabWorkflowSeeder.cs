@@ -59,6 +59,36 @@ namespace ClinoraBE.Data
                   Status BIT NOT NULL DEFAULT 1
                 );
 
+                IF OBJECT_ID('dbo.VaccinationRecord','U') IS NULL
+                CREATE TABLE dbo.VaccinationRecord (
+                  Id INT IDENTITY(1,1) PRIMARY KEY,
+                  VisitServiceId INT NOT NULL,
+                  BatchNo NVARCHAR(80) NULL,
+                  LotNo NVARCHAR(80) NULL,
+                  ExpiryDate DATETIME2 NULL,
+                  DoseNumber NVARCHAR(40) NULL,
+                  Site NVARCHAR(80) NULL,
+                  Route NVARCHAR(80) NULL,
+                  AdministeredAt DATETIME2 NOT NULL,
+                  AdministeredByName NVARCHAR(200) NULL,
+                  NextDueAt DATETIME2 NULL,
+                  Notes NVARCHAR(500) NULL
+                );
+
+                IF COL_LENGTH('dbo.Visit', 'Purpose') IS NULL
+                  ALTER TABLE dbo.Visit ADD Purpose NVARCHAR(40) NOT NULL CONSTRAINT DF_Visit_Purpose DEFAULT N'Standard';
+
+                IF OBJECT_ID('dbo.MedicalCertificate','U') IS NULL
+                CREATE TABLE dbo.MedicalCertificate (
+                  Id INT IDENTITY(1,1) PRIMARY KEY,
+                  VisitId INT NOT NULL,
+                  Fitness NVARCHAR(40) NOT NULL DEFAULT N'Pending',
+                  DestinationCountry NVARCHAR(100) NULL,
+                  Remarks NVARCHAR(1000) NULL,
+                  IssuedByName NVARCHAR(200) NULL,
+                  IssuedAt DATETIME2 NULL
+                );
+
                 IF COL_LENGTH('dbo.Service', 'Pathway') IS NULL
                   ALTER TABLE dbo.Service ADD Pathway NVARCHAR(40) NOT NULL CONSTRAINT DF_Service_Pathway DEFAULT N'Laboratory';
                 IF COL_LENGTH('dbo.Service', 'ReportProfile') IS NULL
@@ -276,6 +306,8 @@ namespace ClinoraBE.Data
                 {
                     "Consultation" => ServicePathways.Consultation,
                     "Radiology" => ServicePathways.Radiology,
+                    "Vaccination" => ServicePathways.Vaccination,
+                    "Physical" => ServicePathways.Physical,
                     "Cardiology" when service.Name.Contains("ECG", StringComparison.OrdinalIgnoreCase)
                         => ServicePathways.Radiology,
                     _ => ServicePathways.Laboratory
@@ -284,6 +316,10 @@ namespace ClinoraBE.Data
                 if (pathway == ServicePathways.Radiology)
                 {
                     service.ReportProfile = ReportProfiles.Radiology;
+                }
+                if (pathway == ServicePathways.Physical)
+                {
+                    service.ReportProfile = ReportProfiles.PhysicalExam;
                 }
 
                 if (pathway != ServicePathways.Laboratory)

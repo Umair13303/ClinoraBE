@@ -55,6 +55,7 @@ namespace ClinoraBE.Controllers
                     PatientName = x.p.FullName,
                     ReferredBy = string.IsNullOrWhiteSpace(x.v.ReferredBy) ? "—" : x.v.ReferredBy,
                     PanelName = x.p.IsPanel && !string.IsNullOrWhiteSpace(x.p.PanelName) ? x.p.PanelName : "—",
+                    Purpose = string.IsNullOrWhiteSpace(x.v.Purpose) ? VisitPurposes.Standard : x.v.Purpose,
                     Net = x.v.Net,
                     CreatedAt = x.v.CreatedAt
                 })
@@ -213,6 +214,13 @@ namespace ClinoraBE.Controllers
             var today = DateTime.Today;
             var tokenBase = await _db.Visit.CountAsync(v => v.CreatedAt >= today && (branchId == null || v.BranchId == branchId));
             var nextNumber = await _db.Visit.CountAsync() + 1;
+            var purpose = string.Equals(request.Purpose?.Trim(), VisitPurposes.MedicalCertificate, StringComparison.OrdinalIgnoreCase)
+                ? VisitPurposes.MedicalCertificate
+                : VisitPurposes.Standard;
+            var destination = string.IsNullOrWhiteSpace(request.DestinationCountry)
+                ? null
+                : request.DestinationCountry.Trim();
+
             var visit = new Visit
             {
                 VisitNumber = $"V-{nextNumber:0000}",
@@ -229,7 +237,8 @@ namespace ClinoraBE.Controllers
                 IsReferred = request.IsReferred,
                 ReferredBy = request.IsReferred ? request.ReferredBy?.Trim() : null,
                 SlipNo = request.IsReferred ? request.SlipNo?.Trim() : null,
-                Notes = request.IsReferred ? request.Notes?.Trim() : null,
+                Notes = string.IsNullOrWhiteSpace(request.Notes) ? null : request.Notes.Trim(),
+                Purpose = purpose,
                 BranchId = branchId,
                 CompanyId = ReadIntClaim("CompanyId") ?? patient.CompanyId,
                 CreatedBy = ReadIntClaim(ClaimTypes.NameIdentifier),
@@ -253,6 +262,8 @@ namespace ClinoraBE.Controllers
                 {
                     ServicePathways.Consultation => VisitServiceStatuses.Completed,
                     ServicePathways.Radiology => VisitServiceStatuses.AwaitingImaging,
+                    ServicePathways.Vaccination => VisitServiceStatuses.AwaitingAdministration,
+                    ServicePathways.Physical => VisitServiceStatuses.AwaitingExamination,
                     _ => VisitServiceStatuses.AwaitingCollection
                 };
 
@@ -273,6 +284,17 @@ namespace ClinoraBE.Controllers
             }
 
             await _db.SaveChangesAsync();
+
+            if (purpose == VisitPurposes.MedicalCertificate)
+            {
+                _db.MedicalCertificate.Add(new MedicalCertificate
+                {
+                    VisitId = visit.Id,
+                    Fitness = CertificateFitness.Pending,
+                    DestinationCountry = destination
+                });
+                await _db.SaveChangesAsync();
+            }
 
             return Ok(new VisitReceiptDto
             {
@@ -313,7 +335,7 @@ namespace ClinoraBE.Controllers
             }
 
             visit.VisitStatus = VisitStatuses.Cancelled;
-            foreach (var line in lines.Where(l => l.Status is VisitServiceStatuses.AwaitingCollection or VisitServiceStatuses.AwaitingImaging or VisitServiceStatuses.Completed))
+            foreach (var line in lines.Where(l => l.Status is VisitServiceStatuses.AwaitingCollection or VisitServiceStatuses.AwaitingImaging or VisitServiceStatuses.AwaitingAdministration or VisitServiceStatuses.AwaitingExamination or VisitServiceStatuses.Completed))
             {
                 if (line.Status != VisitServiceStatuses.Completed)
                 {

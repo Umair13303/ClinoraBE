@@ -51,6 +51,7 @@ namespace ClinoraBE.Model.ViewModel
         public string PatientName { get; set; } = string.Empty;
         public string? ReferredBy { get; set; }
         public string? PanelName { get; set; }
+        public string Purpose { get; set; } = "Standard";
         public decimal Net { get; set; }
         public DateTime CreatedAt { get; set; }
     }
@@ -85,6 +86,8 @@ namespace ClinoraBE.Model.ViewModel
         public string? ReferredBy { get; set; }
         public string? SlipNo { get; set; }
         public string? Notes { get; set; }
+        public string? Purpose { get; set; }
+        public string? DestinationCountry { get; set; }
         public List<VisitServiceLineRequest> Services { get; set; } = [];
     }
 

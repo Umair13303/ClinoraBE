@@ -63,12 +63,14 @@ namespace ClinoraBE.Controllers
                     l.Status == VisitServiceStatuses.ResultEntered
                     && !alreadyReportedIds.Contains(l.Id)
                     && services.TryGetValue(l.ServiceId, out var svc)
-                    && svc.Pathway != ServicePathways.Radiology)
+                    && svc.Pathway != ServicePathways.Radiology
+                    && svc.Pathway != ServicePathways.Vaccination
+                    && svc.Pathway != ServicePathways.Physical)
                 .ToList();
 
             if (lines.Count == 0)
             {
-                return BadRequest(new { message = "Nothing left to finalize — selected tests are already reported, radiology, or not ready." });
+                return BadRequest(new { message = "Nothing left to finalize — selected tests are already reported, radiology, vaccination, physical, or not ready." });
             }
 
             var byName = string.IsNullOrWhiteSpace(request.FinalizedByName) ? "Doctor" : request.FinalizedByName.Trim();

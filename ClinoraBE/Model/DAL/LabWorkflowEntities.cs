@@ -175,4 +175,31 @@ namespace ClinoraBE.Model.DAL
         public int SortOrder { get; set; }
         public bool Status { get; set; } = true;
     }
+
+    public partial class VaccinationRecord
+    {
+        public int Id { get; set; }
+        public int VisitServiceId { get; set; }
+        public string? BatchNo { get; set; }
+        public string? LotNo { get; set; }
+        public DateTime? ExpiryDate { get; set; }
+        public string? DoseNumber { get; set; }
+        public string? Site { get; set; }
+        public string? Route { get; set; }
+        public DateTime AdministeredAt { get; set; }
+        public string? AdministeredByName { get; set; }
+        public DateTime? NextDueAt { get; set; }
+        public string? Notes { get; set; }
+    }
+
+    public partial class MedicalCertificate
+    {
+        public int Id { get; set; }
+        public int VisitId { get; set; }
+        public string Fitness { get; set; } = "Pending";
+        public string? DestinationCountry { get; set; }
+        public string? Remarks { get; set; }
+        public string? IssuedByName { get; set; }
+        public DateTime? IssuedAt { get; set; }
+    }
 }

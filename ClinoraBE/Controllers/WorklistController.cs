@@ -153,6 +153,8 @@ namespace ClinoraBE.Controllers
                 join p in _db.Patient.AsNoTracking() on v.PatientId equals p.Id
                 join s in _db.Service.AsNoTracking() on vs.ServiceId equals s.Id
                 where s.Pathway != ServicePathways.Radiology
+                      && s.Pathway != ServicePathways.Vaccination
+                      && s.Pathway != ServicePathways.Physical
                       && visitIds.Contains(v.Id)
                       && v.VisitStatus == VisitStatuses.Active
                       && (
@@ -223,7 +225,7 @@ namespace ClinoraBE.Controllers
         }
 
         [HttpGet("summary")]
-        [StationAuthorize("FrontDesk", "Phlebotomy", "Lab", "Doctor", "Radiology")]
+        [StationAuthorize("FrontDesk", "Phlebotomy", "Lab", "Doctor", "Radiology", "Vaccination")]
         public async Task<ActionResult<WorklistSummaryDto>> Summary()
         {
             var branchId = BranchContext.ResolveBranchId(Request, User);
@@ -258,6 +260,7 @@ namespace ClinoraBE.Controllers
                     vs.Status == VisitServiceStatuses.AwaitingImaging
                     || vs.Status == VisitServiceStatuses.Performed
                     || vs.Status == VisitServiceStatuses.Imaged),
+                Vaccination = await lines.CountAsync(vs => vs.Status == VisitServiceStatuses.AwaitingAdministration),
                 OutsideOverdue = overdue
             });
         }

@@ -10,7 +10,7 @@ namespace ClinoraBE.Controllers
     [ApiController]
     [Route("api/patients")]
     [Authorize]
-    [StationAuthorize("FrontDesk", "Lab", "Doctor", "Radiology", "Phlebotomy")]
+    [StationAuthorize("FrontDesk", "Lab", "Doctor", "Radiology", "Phlebotomy", "Vaccination")]
     public class PatientsController : ControllerBase
     {
         private readonly ClinoraContext _db;

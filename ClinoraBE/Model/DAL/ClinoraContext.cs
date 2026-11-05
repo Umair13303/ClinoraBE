@@ -36,6 +36,8 @@ namespace ClinoraBE.Model.DAL
         public virtual DbSet<RadiologyTemplate> RadiologyTemplate { get; set; }
         public virtual DbSet<RadiologyTemplateService> RadiologyTemplateService { get; set; }
         public virtual DbSet<ServiceParameter> ServiceParameter { get; set; }
+        public virtual DbSet<VaccinationRecord> VaccinationRecord { get; set; }
+        public virtual DbSet<MedicalCertificate> MedicalCertificate { get; set; }
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
@@ -103,6 +105,8 @@ namespace ClinoraBE.Model.DAL
             modelBuilder.Entity<Container>().ToTable("Container");
             modelBuilder.Entity<OutsideLab>().ToTable("OutsideLab");
             modelBuilder.Entity<Antibody>().ToTable("Antibody");
+            modelBuilder.Entity<VaccinationRecord>().ToTable("VaccinationRecord");
+            modelBuilder.Entity<MedicalCertificate>().ToTable("MedicalCertificate");
             modelBuilder.Entity<LabSample>().ToTable("LabSample");
             modelBuilder.Entity<SampleTest>().ToTable("SampleTest");
             modelBuilder.Entity<OutsideLabShipment>().ToTable("OutsideLabShipment");
@@ -272,6 +276,8 @@ namespace ClinoraBE.Model.DAL
         public string? ReferredBy { get; set; }
         public string? SlipNo { get; set; }
         public string? Notes { get; set; }
+        /// <summary>Standard | MedicalCertificate (Wafid / foreign fitness package).</summary>
+        public string Purpose { get; set; } = "Standard";
         public int? BranchId { get; set; }
         public int? CompanyId { get; set; }
         public int? CreatedBy { get; set; }

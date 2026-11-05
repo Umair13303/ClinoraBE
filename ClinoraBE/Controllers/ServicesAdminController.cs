@@ -179,8 +179,18 @@ namespace ClinoraBE.Controllers
                 return ReportProfiles.Radiology;
             }
 
+            if (pathway == ServicePathways.Physical)
+            {
+                return ReportProfiles.PhysicalExam;
+            }
+
+            if (pathway is ServicePathways.Vaccination or ServicePathways.Consultation)
+            {
+                return ReportProfiles.Standard;
+            }
+
             var value = ReportProfiles.Normalize(profile);
-            return value is ReportProfiles.Narrative or ReportProfiles.Semen or ReportProfiles.Ihc or ReportProfiles.Standard
+            return value is ReportProfiles.Narrative or ReportProfiles.Semen or ReportProfiles.Ihc or ReportProfiles.PhysicalExam or ReportProfiles.Standard
                 ? value
                 : ReportProfiles.Standard;
         }
