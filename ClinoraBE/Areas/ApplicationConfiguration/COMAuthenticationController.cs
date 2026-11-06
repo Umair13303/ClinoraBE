@@ -3,6 +3,7 @@ using ClinoraBE.Model.DAL;
 using ClinoraBE.Model.Enum;
 using ClinoraBE.Model.Security;
 using ClinoraBE.Model.ViewModel;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
@@ -85,6 +86,7 @@ namespace ClinoraBE.Areas.ApplicationConfiguration.Controllers
             });
         }
 
+        [Authorize]
         [HttpGet("UserMenu_Populate")]
         public async Task<ActionResult<List<VMMenu>>> get_UserMenu()
         {
