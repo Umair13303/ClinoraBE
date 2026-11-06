@@ -17,16 +17,11 @@ builder.Services.AddScoped<ICOMAuthentication, ICOMAuthenticationService>();
 builder.Services.AddControllers();
 
 const string FrontendCorsPolicy = "Frontend";
-var allowedOrigins = builder.Configuration.GetSection("Cors:AllowedOrigins").Get<string[]>();
-if (allowedOrigins is null || allowedOrigins.Length == 0)
-{
-    allowedOrigins = ["http://localhost:4200", "http://localhost:4201"];
-}
 
 builder.Services.AddCors(options =>
 {
     options.AddPolicy(FrontendCorsPolicy, policy =>
-        policy.WithOrigins(allowedOrigins)
+        policy.AllowAnyOrigin()
             .AllowAnyHeader()
             .AllowAnyMethod());
 });
@@ -95,7 +90,7 @@ var app = builder.Build();
 using (var scope = app.Services.CreateScope())
 {
     var db = scope.ServiceProvider.GetRequiredService<ClinoraContext>();
-    await FrontDeskSeeder.EnsureSeedAsync(db);
+    // await FrontDeskSeeder.EnsureSeedAsync(db);
 }
 
 if (app.Environment.IsDevelopment())
